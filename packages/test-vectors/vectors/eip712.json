@@ -1,0 +1,186 @@
+{
+  "format": "afr/eip712",
+  "version": 1,
+  "cases": [
+    {
+      "name": "Delegation",
+      "input": {
+        "chain_id": 84532,
+        "primary_type": "Delegation",
+        "message": {
+          "agentKey": "0xac22514771c0e2e7d912aa3e0d25f490b9a485293dd8f0b64b7acfaedce63938",
+          "lane": 0,
+          "sessionKey": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "notBefore": "1793577600",
+          "notAfter": "1793664000",
+          "scope": 1,
+          "recorder": "afr-recorder/0.1.0",
+          "nonce": "1"
+        }
+      },
+      "expected": {
+        "digest": "0xb340bae09b05336b2a3998afca8d620476b5616d9cb5ecdab13124456cfc891e",
+        "sig": "0x6d79c6ef876edaa9df99e487fe421a2b0736f13b616e503714850ee6e2102e5305657d6a2b2874154bc2ae3648492be4df630afa974617ea576cec798d99fc991c",
+        "signer": "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf"
+      }
+    },
+    {
+      "name": "Revocation",
+      "input": {
+        "chain_id": 84532,
+        "primary_type": "Revocation",
+        "message": {
+          "agentKey": "0xac22514771c0e2e7d912aa3e0d25f490b9a485293dd8f0b64b7acfaedce63938",
+          "sessionKey": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "effectiveAt": "1793600000",
+          "reason": "rotated"
+        }
+      },
+      "expected": {
+        "digest": "0xc2906239993f5af79179c5a17aaaf54ae4e0fb97ada1bf816f50ecfe5817fb82",
+        "sig": "0xda6bfee72f691adba17589b5791d56beb57b84fb56819489a95314d3d79b2b8d4bf8a22b6a5512a60b52a1dcc084899aa5122424f1f434b5fad40f62b044e74d1c",
+        "signer": "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf"
+      }
+    },
+    {
+      "name": "AgentProfile",
+      "input": {
+        "chain_id": 84532,
+        "primary_type": "AgentProfile",
+        "message": {
+          "agentKey": "0xac22514771c0e2e7d912aa3e0d25f490b9a485293dd8f0b64b7acfaedce63938",
+          "privacyLevel": 1,
+          "retentionDays": 365,
+          "watchedHash": "0x059b05f4e43af9a678db2eac5cf3b3e7008145bdf820916913eaa728a3a754f6",
+          "readersHash": "0x8cff4faa39018c56b06f2212a1f8cf58ec2e5fb8f024731b962a5f5bf689e87c",
+          "version": "1"
+        }
+      },
+      "expected": {
+        "digest": "0xdadc047d03261f7df12a4b3e0fd29f2dd6b5bc27b7545d58d5f467474b9a32eb",
+        "sig": "0x4a0fb402183199a43cd144c47909c85b932ed3fdba57aa88141a79c308b75c7b1f865daf2a462257a97756515c688ce2494576598e9b3c4179f06338d732141f1b",
+        "signer": "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf"
+      }
+    },
+    {
+      "name": "ReaderKey",
+      "input": {
+        "chain_id": 84532,
+        "primary_type": "ReaderKey",
+        "message": {
+          "owner": "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf",
+          "x25519": "0x6a70b9f2bca17781712631c170999ca31614a092f0b91bd46ff9c292b0fdcc65",
+          "label": "operator",
+          "notAfter": "1825113600"
+        }
+      },
+      "expected": {
+        "digest": "0x34cab42fe74e59db1d96f58eda0bd120040d6c905a874190445d4a9e383a9b67",
+        "sig": "0x774eb4bb071511a1e3dc1b722a7be31def4766db82474bb0899e323302a0c9be4f4ee82e397bfbc28586ef6a89d4e8fbc4ef56b909c079105e2bee0ad9cc0be01c",
+        "signer": "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf"
+      }
+    },
+    {
+      "name": "KeyGrant",
+      "input": {
+        "chain_id": 84532,
+        "primary_type": "KeyGrant",
+        "message": {
+          "agentKey": "0xac22514771c0e2e7d912aa3e0d25f490b9a485293dd8f0b64b7acfaedce63938",
+          "epochId": 352,
+          "kekId": "0x5c16726ad5ab2c876aa9244c3db3ecd5e455419e7aa88e0343ab250000e455bf",
+          "reader": "0x6a70b9f2bca17781712631c170999ca31614a092f0b91bd46ff9c292b0fdcc65",
+          "encHash": "0xed6b5f2870bf23412a6b5861e4dc44e77efc6cd8376647ef08f40aa1746b69d2"
+        }
+      },
+      "expected": {
+        "digest": "0x352b52e024e541730a7fc46c6830d8c5b63e3e7e8662b622dbe390ac4f0ee171",
+        "sig": "0x0db977e3cc0d474a0abc99607fbc5be6b2f4ba6d0bb2b45ddd8da4e7539e35514b017dee93da7384f6f74cfca3ddf4a9629af80d792919a1d6d72ee7f56a05031c",
+        "signer": "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf"
+      }
+    },
+    {
+      "name": "Approval",
+      "input": {
+        "chain_id": 84532,
+        "primary_type": "Approval",
+        "message": {
+          "agentKey": "0xac22514771c0e2e7d912aa3e0d25f490b9a485293dd8f0b64b7acfaedce63938",
+          "lane": 0,
+          "requestSeq": "4",
+          "requestHash": "0xe4b64938e8dc8eee95c656a92d30f21a6bc31c9d2147b37144bc5b13ea8bc76e",
+          "decision": 1,
+          "expiresAt": "1793581200"
+        }
+      },
+      "expected": {
+        "digest": "0x9ea6cad624367f6f3b2992c8357f5ef4eb3bcac7bb5e640a9e61fbfee6c1ffb6",
+        "sig": "0xbd4a9b737f6b29ebcedebc0cbf868f1cc5f79e2516bade9bc39b7db334a063487ffde72e816ab43e32019f2693972dd82316d2dbe7120e8b371cb21d720e0b931b",
+        "signer": "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf"
+      }
+    },
+    {
+      "name": "ApprovalAttestation",
+      "input": {
+        "chain_id": 84532,
+        "primary_type": "ApprovalAttestation",
+        "message": {
+          "agentKey": "0xac22514771c0e2e7d912aa3e0d25f490b9a485293dd8f0b64b7acfaedce63938",
+          "lane": 0,
+          "requestSeq": "4",
+          "requestHash": "0xe4b64938e8dc8eee95c656a92d30f21a6bc31c9d2147b37144bc5b13ea8bc76e",
+          "decision": 2,
+          "approver": "slack:T123/U456",
+          "attestedAt": "1793578000"
+        }
+      },
+      "expected": {
+        "digest": "0x680ed895e3fbe864fceef9fbb5eca3107bdab10e34c0346fbb6848e8d52fae22",
+        "sig": "0x99504e90f63b3b01614dc6c6d45888b5bb6c93fa928071b2f4ebdbcea24a84b618da882e28bde373dfa879219368ab8f9213827f6e948856ce5ba3a4c1bd38551c",
+        "signer": "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf"
+      }
+    },
+    {
+      "name": "Attestation",
+      "input": {
+        "chain_id": 84532,
+        "primary_type": "Attestation",
+        "message": {
+          "agentKey": "0xac22514771c0e2e7d912aa3e0d25f490b9a485293dd8f0b64b7acfaedce63938",
+          "lane": 0,
+          "seqTo": "4",
+          "chainRoot": "0x422d65357d4c27ed879e32d4f49ce6a0126a40e991c76e0eaf26bcd597da7037",
+          "verdict": 1,
+          "findingsHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "scope": "vector"
+        }
+      },
+      "expected": {
+        "digest": "0x131c107fd36905aa426bb2788f871020d47f4359e5fc59fe0a11b94dd687631c",
+        "sig": "0x8a1437498b9f98aad13b310c0f82d79222fac9e9b4d9b9731a09e95ab8856ccf7e90271c0d1b9913c24867ff96d4b049e2a93e38f776f620ccfa9a3743e65e3a1b",
+        "signer": "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf"
+      }
+    },
+    {
+      "name": "CheckpointStatement",
+      "input": {
+        "chain_id": 84532,
+        "primary_type": "CheckpointStatement",
+        "message": {
+          "agentKey": "0xac22514771c0e2e7d912aa3e0d25f490b9a485293dd8f0b64b7acfaedce63938",
+          "lane": 0,
+          "seqTo": "4",
+          "chainRoot": "0x422d65357d4c27ed879e32d4f49ce6a0126a40e991c76e0eaf26bcd597da7037",
+          "anchorRoot": "0xfaa41dc9a8b0664d1f85bf19a5177125b82e289941571172aac1afccc41b13e5",
+          "anchorChainId": "84532",
+          "anchorTx": "0x54d440927a74e61560cc098b844217ecee47d2aa178acf591d4fdee1bd06b494"
+        }
+      },
+      "expected": {
+        "digest": "0x5fe0e72a81f65d3681298084f7e8bd00352dd24021997d07a7221963e6bddc1e",
+        "sig": "0x7586f92f621890e25746d6a5a7d7550a03a97a063035839168abbc1d48391ae4396054956cd94dc2af46b9a67dd607c1dcffb345820e7bfc440902e98a738d821b",
+        "signer": "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf"
+      }
+    }
+  ]
+}

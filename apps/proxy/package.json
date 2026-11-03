@@ -1,0 +1,35 @@
+{
+  "name": "@afr/proxy",
+  "version": "0.0.0",
+  "description": "fr-proxy MCP proxy",
+  "private": true,
+  "license": "SEE LICENSE IN ../../LICENSE-APPS.md",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@afr/source": "./src/proxy.ts",
+      "types": "./dist/proxy.d.ts",
+      "default": "./dist/proxy.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root . --config ../../vitest.config.ts"
+  },
+  "dependencies": {
+    "@afr/core": "workspace:*",
+    "@afr/log": "workspace:*",
+    "@afr/recorder": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "viem": "2.57.7",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "bin": {
+    "fr-proxy": "./dist/cli.js"
+  }
+}

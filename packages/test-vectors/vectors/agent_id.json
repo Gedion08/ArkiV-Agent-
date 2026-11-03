@@ -1,0 +1,33 @@
+{
+  "format": "afr/agent_id",
+  "version": 1,
+  "cases": [
+    {
+      "name": "eip155",
+      "input": "eip155:84532:0x00000000000000000000000000000000000a8004:7",
+      "expected": {
+        "agent_key": "0xac22514771c0e2e7d912aa3e0d25f490b9a485293dd8f0b64b7acfaedce63938",
+        "chainId": "84532",
+        "registry": "0x00000000000000000000000000000000000a8004",
+        "tokenId": "7"
+      }
+    },
+    {
+      "name": "eip155",
+      "input": "eip155:8453:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:0",
+      "expected": {
+        "agent_key": "0x9cc20b55b2230b9639047e12686a5e115556a63c5c501a8e82347ba5c50ff7b7",
+        "chainId": "8453",
+        "registry": "0x8004a169fb4a3325136eb29fa0ceb6d2e539a432",
+        "tokenId": "0"
+      }
+    },
+    {
+      "name": "local",
+      "input": "local:9b2f4e0a-1c3d-4e5f-8a6b-7c8d9e0f1a2b",
+      "expected": {
+        "agent_key": "0x2b476d346e61513c97e6522f1942bd114651152c5027b0f56d6597a1581e9f1d"
+      }
+    }
+  ]
+}

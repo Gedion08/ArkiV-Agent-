@@ -1,0 +1,55 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: test vectors are immutable
+        if: github.event_name == 'pull_request'
+        run: |
+          changed=$(git diff --name-only --diff-filter=MDR "origin/${{ github.base_ref }}"...HEAD -- packages/test-vectors/vectors)
+          if [ -n "$changed" ]; then echo "Committed vectors must never change:"; echo "$changed"; exit 1; fi
+      - run: pnpm exec biome ci .
+      - run: pnpm lint:layers
+      - run: pnpm lint:json
+      - run: pnpm typecheck
+      - uses: foundry-rs/foundry-toolchain@v1 # anvil for R6 (packages/sdk wallet hook)
+      - run: pnpm test
+        env:
+          AFR_CRASH_RUNS: "100"
+      # R5 gate (L2 §15): recorder capture() p99 ≤ 5 ms. Core T9 (≤ 1 ms) is not gated: see SPIKES S13
+      - run: pnpm --filter @afr/recorder bench
+      - run: pnpm vectors:check
+      - run: pnpm build
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter @afr/contracts
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: forge fmt --check --root contracts
+      - run: forge test --root contracts -vv
+      - run: forge snapshot --check
+        working-directory: contracts

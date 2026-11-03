@@ -1,0 +1,11 @@
+{
+  "format": "afr/lock_address",
+  "version": 1,
+  "cases": [
+    {
+      "name": "evidence-lock",
+      "input": "AFR_EVIDENCE_LOCK_V1",
+      "expected": "0x50f35de5271e8cbe635f8d37f4327b60cc10f719"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "format": "afr/chain",
+  "version": 1,
+  "cases": [
+    {
+      "name": "batch-0",
+      "input": {
+        "agent_key": "0xac22514771c0e2e7d912aa3e0d25f490b9a485293dd8f0b64b7acfaedce63938",
+        "lane": 0,
+        "entries": [
+          {
+            "seq": "0",
+            "hash": "0x1aebc4fbcd570ffc683d9e87f5b861389aa0bf93037d865cf1fc242b4226f37a"
+          },
+          {
+            "seq": "1",
+            "hash": "0xa308ddf0e5d6803b18f4e8b6a9e138b44a89cf2963951b1ab942938672a5c5f8"
+          },
+          {
+            "seq": "2",
+            "hash": "0x15ddbd9ebee497722c82e9c15fcd2199f8a59ba7c2aa6caf3758e12f5747ef8a"
+          }
+        ],
+        "prev_chain_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "payload_ct_hash": "0x086c5f0648c0c4be15a482e120e64667cc054107e7ba44384e1e346509d8c7a1"
+      },
+      "expected": {
+        "batch_root": "0x2e9a2d129328bd57b14a259053948c0db1d00d7bf5e628308013cfee2e488389",
+        "chain_root": "0x40a5689f4d687147b76c5ba30bb398bbcd8afe8ee056236c340a3ffbb1bc5e35",
+        "batch_digest": "0x3cce91e5a9e7a3699ff58401963e6e7c595f1fbc6a8724f91c37948b76a86784",
+        "batch_sig": "0xf943d0daf1d6b3cc3476f3c23d81c03bf8b01764983d73acc545086ed694ffdf68dc4b1656e1952a8f32553c07de2e14a196fb565f68736dfce6dd5a11a966e71c"
+      }
+    },
+    {
+      "name": "batch-1",
+      "input": {
+        "agent_key": "0xac22514771c0e2e7d912aa3e0d25f490b9a485293dd8f0b64b7acfaedce63938",
+        "lane": 0,
+        "entries": [
+          {
+            "seq": "3",
+            "hash": "0x7eb937075d5f061883628ac49bf57b8a59e0b213255fa4c59a951edc580a5ee0"
+          },
+          {
+            "seq": "4",
+            "hash": "0xe4b64938e8dc8eee95c656a92d30f21a6bc31c9d2147b37144bc5b13ea8bc76e"
+          }
+        ],
+        "prev_chain_root": "0x40a5689f4d687147b76c5ba30bb398bbcd8afe8ee056236c340a3ffbb1bc5e35",
+        "payload_ct_hash": "0xa6cc96b34d121b9433f060b9599888172e6fb3a756ffa90917a48dd0d61c81d7"
+      },
+      "expected": {
+        "batch_root": "0xc34414d3f5223cfeab76b2094f796fc7d0878645eb14fd17a2a18837b0aec6e6",
+        "chain_root": "0x422d65357d4c27ed879e32d4f49ce6a0126a40e991c76e0eaf26bcd597da7037",
+        "batch_digest": "0x6e5a4f5280889ca9511368b14a42c817564789eb6a2873f9cdb5ae25e1632e74",
+        "batch_sig": "0xc9bd63c4d3543baabc4fe9f371049b245e17fb588fcfb5664edb1177ef1751030c4ddf724f7f3e4c122de4f86ace039e0a3940f40b127962ee68731d7bdb3a0c1c"
+      }
+    }
+  ]
+}

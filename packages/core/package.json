@@ -1,0 +1,35 @@
+{
+  "name": "@afr/core",
+  "version": "0.0.0",
+  "description": "L1 record format, JCS, hashing, signing, merkle, EIP-712 types",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@afr/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run --root . --config ../../vitest.config.ts",
+    "bench": "vitest run --root . --config ../../vitest.bench.config.ts --silent=false"
+  },
+  "dependencies": {
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "@openzeppelin/merkle-tree": "1.0.8",
+    "canonicalize": "5.1.0",
+    "viem": "2.57.7",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "ethers": "6.17.0",
+    "fast-check": "4.10.2"
+  }
+}

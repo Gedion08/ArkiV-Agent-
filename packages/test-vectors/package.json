@@ -1,0 +1,29 @@
+{
+  "name": "@afr/test-vectors",
+  "version": "0.0.0",
+  "description": "Golden test vectors shared by all implementations",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@afr/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "vectors"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root . --config ../../vitest.config.ts",
+    "gen": "pnpm --filter @afr/core build && node scripts/gen.mjs",
+    "check": "node scripts/check.mjs"
+  },
+  "dependencies": {
+    "@afr/core": "workspace:*",
+    "viem": "2.57.7"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "afr",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": ">=22.10"
+  },
+  "scripts": {
+    "build": "turbo run build --concurrency=50%",
+    "typecheck": "turbo run typecheck --concurrency=50%",
+    "test": "turbo run test",
+    "lint": "biome check . && pnpm lint:layers && pnpm lint:json",
+    "lint:layers": "depcruise packages apps --config .dependency-cruiser.cjs",
+    "lint:json": "node tools/lint/no-json-stringify.mjs",
+    "format": "biome check --write .",
+    "vectors:check": "pnpm --filter @afr/test-vectors check",
+    "contracts:test": "forge test --root contracts",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm vectors:check && pnpm build",
+    "changeset": "changeset",
+    "local:up": "docker compose -f infra/compose/docker-compose.yml up -d --wait",
+    "local:down": "docker compose -f infra/compose/docker-compose.yml down -v",
+    "bench": "turbo run bench --concurrency=1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@changesets/cli": "3.0.3",
+    "@types/node": "22.20.5",
+    "dependency-cruiser": "18.6.0",
+    "turbo": "2.11.9",
+    "typescript": "6.0.3",
+    "vitest": "4.1.12"
+  }
+}

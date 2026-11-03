@@ -1,0 +1,60 @@
+{
+  "format": "afr/commit",
+  "version": 1,
+  "cases": [
+    {
+      "name": "args-object",
+      "input": {
+        "domain": "afr/args",
+        "value_json": "{\"to\":\"0xabc\",\"amount\":\"1000000\",\"memo\":\"café\"}",
+        "salt": "0xf74a2cf48e04c6fbdbb74e7d09a58148d7dc5d711e9ab6d5687142fd4afa437d"
+      },
+      "expected": "0xfd439da7f9890cab9e257bf8d918871aab4efb37a380888be52b8c751f01790c"
+    },
+    {
+      "name": "result-mcp",
+      "input": {
+        "domain": "afr/result",
+        "value_json": "{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"isError\":false}",
+        "salt": "0xe6dc94e8329a6cc4cd1b41b427bafdac9373b5afdf654bae6989784efe67823d"
+      },
+      "expected": "0x480777e6ed540bb16b3732698428292a8031bb65d37973734f9c8ae7f21c4a63"
+    },
+    {
+      "name": "context-float",
+      "input": {
+        "domain": "afr/context",
+        "value_json": "{\"temperature\":0.7,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
+        "salt": "0xacc2ba7673a3f7ac2d613cbe9a537bb1659387e1f69bb676d58d79e3d35662bc"
+      },
+      "expected": "0x175b75a9992e7090ea904e7d5712b42fbbc203e9843c231e4f7dfa49d6d74325"
+    },
+    {
+      "name": "output-string",
+      "input": {
+        "domain": "afr/output",
+        "value_json": "\"Swapping 10 USDC\"",
+        "salt": "0x102d94d23d042e05472fc0cf931ef0f627c6f7758344df296998890bc6bf5d13"
+      },
+      "expected": "0xca2fe4e09fbc2ca62bd48990d3069e49a32b1833ac90560a02f7a1abfc99a314"
+    },
+    {
+      "name": "calldata",
+      "input": {
+        "domain": "afr/calldata",
+        "value_json": "\"0xa9059cbb000000000000000000000000000000000000000000000000000000000000beef\"",
+        "salt": "0xf78120a2c7b3c47b28e1ce8406207258db61ef8615084f352246b04561b0fb09"
+      },
+      "expected": "0xdc125299f770d7347a35a0d1199f03972032349a3bb601da2c20c5b719c08885"
+    },
+    {
+      "name": "null-value",
+      "input": {
+        "domain": "afr/args",
+        "value_json": "null",
+        "salt": "0xaba295ab97d50143493af19b75aaeed4ceef6d1b4de2953943e619d90487bba5"
+      },
+      "expected": "0xa06dfdce5e20c962539d9e84c5117f539cc3ecb15d0d7301dbfe37789020a98c"
+    }
+  ]
+}

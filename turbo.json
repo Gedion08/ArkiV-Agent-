@@ -1,0 +1,24 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": []
+    },
+    "test": {
+      "dependsOn": [],
+      "outputs": [],
+      "passThroughEnv": ["AFR_CRASH_RUNS", "AFR_BENCH_P99_MS"]
+    },
+    "check": {
+      "outputs": []
+    },
+    "bench": {
+      "cache": false,
+      "passThroughEnv": ["AFR_BENCH_P99_MS", "AFR_BENCH_R5_P99_MS"]
+    }
+  }
+}

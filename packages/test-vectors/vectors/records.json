@@ -1,0 +1,306 @@
+{
+  "format": "afr/record",
+  "version": 1,
+  "cases": [
+    {
+      "name": "0-session_start",
+      "input": {
+        "header": {
+          "agent_id": "eip155:84532:0x00000000000000000000000000000000000a8004:7",
+          "commit": {},
+          "lane": 0,
+          "meta": {
+            "config_hash": "0xf786bfa91ce1dec89880c3f56a13b11774741349480faf50315c8e118f6b1817",
+            "delegation_hash": "0x330020d785b39399aa8006d3b095823fe42c8af108bb284b5518a5066faca68c",
+            "recorder_version": "0.1.0",
+            "session_key": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+          },
+          "prev_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "seq": "0",
+          "session_id": "0x0123456789abcdef0123456789abcdef",
+          "ts": "1793577600000",
+          "type": "session_start",
+          "v": 1
+        }
+      },
+      "expected": {
+        "record_hash": "0x1aebc4fbcd570ffc683d9e87f5b861389aa0bf93037d865cf1fc242b4226f37a",
+        "sig": "0x5311692cd7e3ba0f746daa27542490395e467630448d99a9b3f89ce70e4db3ea0e4cf8431977c33143827b7365128ab225a083373eba0eaf4de1fc5768367fe51c",
+        "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+      }
+    },
+    {
+      "name": "1-tool_call",
+      "input": {
+        "header": {
+          "agent_id": "eip155:84532:0x00000000000000000000000000000000000a8004:7",
+          "commit": {
+            "args": "0x8d1d6fcb3a1093e8c5e7ed9c1ccc6fee93af0843fdeab117f35b5fd0356b2db0"
+          },
+          "lane": 0,
+          "prev_hash": "0x1aebc4fbcd570ffc683d9e87f5b861389aa0bf93037d865cf1fc242b4226f37a",
+          "seq": "1",
+          "session_id": "0x0123456789abcdef0123456789abcdef",
+          "tool": {
+            "name": "echo",
+            "server": "everything"
+          },
+          "ts": "1793577600000",
+          "type": "tool_call",
+          "v": 1
+        },
+        "body": {
+          "salt": "0x433408d5bf4a5ff76d3a1e1986889503b001a93ca76c1b6f79fdfcd5a9331dc9",
+          "args": {
+            "message": "hi"
+          }
+        }
+      },
+      "expected": {
+        "record_hash": "0xa308ddf0e5d6803b18f4e8b6a9e138b44a89cf2963951b1ab942938672a5c5f8",
+        "sig": "0xa1a3ac50b1f441767ce08ee0bf0215e64bb2390dff4f5b92fac95f3d5142feaf766a1a7190b5b5e15ec804ad80fe47766b69227ce342d6b3ec53edf4b8a53b1a1c",
+        "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+      }
+    },
+    {
+      "name": "2-tool_result",
+      "input": {
+        "header": {
+          "agent_id": "eip155:84532:0x00000000000000000000000000000000000a8004:7",
+          "commit": {
+            "result": "0x42fccf1b343c498c9e5869782c3312e247a14929ec86a2403446aff754f9f43c"
+          },
+          "lane": 0,
+          "prev_hash": "0xa308ddf0e5d6803b18f4e8b6a9e138b44a89cf2963951b1ab942938672a5c5f8",
+          "ref_seq": "1",
+          "seq": "2",
+          "session_id": "0x0123456789abcdef0123456789abcdef",
+          "tool": {
+            "duration_ms": "12",
+            "is_error": false,
+            "name": "echo",
+            "server": "everything"
+          },
+          "ts": "1793577600000",
+          "type": "tool_result",
+          "v": 1
+        },
+        "body": {
+          "salt": "0x97b3e3c39bc33e11bb27f13d1414e2e9af96f1ed604a3dac7616c7b0aff06438",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Echo: hi"
+              }
+            ]
+          }
+        }
+      },
+      "expected": {
+        "record_hash": "0x15ddbd9ebee497722c82e9c15fcd2199f8a59ba7c2aa6caf3758e12f5747ef8a",
+        "sig": "0x96fa0dfd65c0cb4a4618a1b707c87373bfec11a34d038c07eeca3665d075c51b02bc3dadf64d133ec11abec438f27f17855aca3a0dc2882884502cd7536accc71c",
+        "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+      }
+    },
+    {
+      "name": "3-model_call",
+      "input": {
+        "header": {
+          "agent_id": "eip155:84532:0x00000000000000000000000000000000000a8004:7",
+          "commit": {
+            "context": "0x075ad5904c5121a1179f8bec91cedc5147c29f94023f369123e4df51aa256384",
+            "output": "0x9a0c72b708b99dfdf3b028a284b793d7cf9b4d0a43179f183123ae52e29ef7ee"
+          },
+          "lane": 0,
+          "model": {
+            "id": "claude-opus-5-5",
+            "provider": "anthropic",
+            "tokens_in": "1200",
+            "tokens_out": "85"
+          },
+          "prev_hash": "0x15ddbd9ebee497722c82e9c15fcd2199f8a59ba7c2aa6caf3758e12f5747ef8a",
+          "seq": "3",
+          "session_id": "0x0123456789abcdef0123456789abcdef",
+          "ts": "1793577600000",
+          "type": "model_call",
+          "v": 1
+        },
+        "body": {
+          "salt": "0xb692ebf8bd0f440af988cec2703872c02d66dc985f84c2729e2b571615a1ccdd",
+          "context": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "swap 10 usdc"
+              }
+            ]
+          },
+          "output": {
+            "text": "ok"
+          }
+        }
+      },
+      "expected": {
+        "record_hash": "0x7eb937075d5f061883628ac49bf57b8a59e0b213255fa4c59a951edc580a5ee0",
+        "sig": "0xc094fabadc5b743030cad1f2e26061d11cecad486d2f5d23c127e5a1f1d947463443c8ff33027e4388e364a71af145c18ba3fbfb09be2a1629ff34578a9a755f1b",
+        "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+      }
+    },
+    {
+      "name": "4-tx_sign",
+      "input": {
+        "header": {
+          "agent_id": "eip155:84532:0x00000000000000000000000000000000000a8004:7",
+          "commit": {
+            "calldata": "0xbd8c5301310a20b5a52a640055724351a73f6f5b57b3a1511f57d6e5e30709b7"
+          },
+          "lane": 0,
+          "prev_hash": "0x7eb937075d5f061883628ac49bf57b8a59e0b213255fa4c59a951edc580a5ee0",
+          "seq": "4",
+          "session_id": "0x0123456789abcdef0123456789abcdef",
+          "ts": "1793577600000",
+          "tx": {
+            "chain_id": "84532",
+            "data_commit": "0xbd8c5301310a20b5a52a640055724351a73f6f5b57b3a1511f57d6e5e30709b7",
+            "from": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+            "kind": "eoa",
+            "nonce": "0",
+            "selector": "0xa9059cbb",
+            "to": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+            "value": "0"
+          },
+          "type": "tx_sign",
+          "v": 1
+        },
+        "body": {
+          "salt": "0xc5cc33a138dc09001ca5ad4efbe84647bee96a5d41d67bec499d93c266627247",
+          "calldata": "0xa9059cbb000000000000000000000000000000000000000000000000000000000000beef"
+        }
+      },
+      "expected": {
+        "record_hash": "0xe4b64938e8dc8eee95c656a92d30f21a6bc31c9d2147b37144bc5b13ea8bc76e",
+        "sig": "0x2f5bd5dc7c2f322acc4790f5405213451e478ce4454ac56e5fcf465d6edad9273c8f7b9aa6af4a99a49dfc2f409771792ca9c4e69934296c87ce572f361025af1b",
+        "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+      }
+    },
+    {
+      "name": "5-msg_sign",
+      "input": {
+        "header": {
+          "agent_id": "eip155:84532:0x00000000000000000000000000000000000a8004:7",
+          "commit": {
+            "args": "0xe1c0a0d70235f927fe88f2a523f9358a2bc05903e21a06ea44e0fb6409ce74a4"
+          },
+          "lane": 0,
+          "meta": {
+            "kind": "typed",
+            "primary_type": "Permit",
+            "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+            "verifying_contract": "0xd7dc6e146f08bec7c630ad39f753bd2af90eb945"
+          },
+          "prev_hash": "0xe4b64938e8dc8eee95c656a92d30f21a6bc31c9d2147b37144bc5b13ea8bc76e",
+          "seq": "5",
+          "session_id": "0x0123456789abcdef0123456789abcdef",
+          "ts": "1793577600000",
+          "type": "msg_sign",
+          "v": 1
+        },
+        "body": {
+          "salt": "0x966170b4a982a7627fe61518acaa0e1a9baf393f45fd734e623b52e8d8823858",
+          "args": {
+            "primaryType": "Permit",
+            "value": "1000000"
+          }
+        }
+      },
+      "expected": {
+        "record_hash": "0x132276d00e1b2fb2406b4edcdc6e2e5c3d63870087d410cf2546fbbe42734a8b",
+        "sig": "0x665d365cefff1884a40d103005567d3ded30e7daaf728b34c2e8ca7ce83d78c0576e0d8d0e9ad788cf651395e16eb6fd75e00b3db4c22f23a71af0beff768e9b1c",
+        "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+      }
+    },
+    {
+      "name": "6-gap",
+      "input": {
+        "header": {
+          "agent_id": "eip155:84532:0x00000000000000000000000000000000000a8004:7",
+          "commit": {},
+          "lane": 0,
+          "meta": {
+            "from_seq": "6",
+            "reason": "crash",
+            "to_seq": "6"
+          },
+          "prev_hash": "0x132276d00e1b2fb2406b4edcdc6e2e5c3d63870087d410cf2546fbbe42734a8b",
+          "seq": "7",
+          "session_id": "0x0123456789abcdef0123456789abcdef",
+          "ts": "1793577600000",
+          "type": "gap",
+          "v": 1
+        }
+      },
+      "expected": {
+        "record_hash": "0xfaf38fc233cea33505642e05b931d3d3cb144aafb0cbcec0c67927f49b8daa3c",
+        "sig": "0x74bf6fe5e384308a42fc0e4adfd20dfa15364d1ff104d4978dbae80580758de55f3f13759cfe781f1a928c2d12f4c80dd8677cba39801253af5fc2c867b22f241b",
+        "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+      }
+    },
+    {
+      "name": "7-note",
+      "input": {
+        "header": {
+          "agent_id": "eip155:84532:0x00000000000000000000000000000000000a8004:7",
+          "commit": {
+            "args": "0x6c8997749506ec88819d1acf2c6c26f6307eeca8c1f5a319e80a9f4b3634f7c5"
+          },
+          "lane": 0,
+          "meta": {
+            "event": "heartbeat"
+          },
+          "prev_hash": "0xfaf38fc233cea33505642e05b931d3d3cb144aafb0cbcec0c67927f49b8daa3c",
+          "seq": "8",
+          "session_id": "0x0123456789abcdef0123456789abcdef",
+          "ts": "1793577600000",
+          "type": "note",
+          "v": 1
+        },
+        "body": {
+          "salt": "0x9b969ffe3d01d5952c2500b4465f89e6e08f4b6b55e0919db73fcb435c33268b",
+          "args": {
+            "event": "heartbeat"
+          }
+        }
+      },
+      "expected": {
+        "record_hash": "0x07e08d8cae0ee1e5375da1caeddaf8406efd083c428afa352fb2c81256a9733e",
+        "sig": "0x76be56a7621918c2cb32ee485de078a571a916adeda18d622da018f0e65995c52fff0cb2439b99e2282f8aec36f11453e8fe3eab66725e0e8e1beb2c536c4c0e1b",
+        "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+      }
+    },
+    {
+      "name": "8-session_end",
+      "input": {
+        "header": {
+          "agent_id": "eip155:84532:0x00000000000000000000000000000000000a8004:7",
+          "commit": {},
+          "lane": 0,
+          "meta": {
+            "reason": "shutdown"
+          },
+          "prev_hash": "0x07e08d8cae0ee1e5375da1caeddaf8406efd083c428afa352fb2c81256a9733e",
+          "seq": "9",
+          "session_id": "0x0123456789abcdef0123456789abcdef",
+          "ts": "1793577600000",
+          "type": "session_end",
+          "v": 1
+        }
+      },
+      "expected": {
+        "record_hash": "0x780db61683519a55d2a31fe6dcb4bef823a92efa04f2a2a06537edd2ba2fc065",
+        "sig": "0x10e5d427f8d108170f8996bdc822d81cde4c0255252872ccccbdc1030e482b3910d8d663a7aad59945d962a57984f9aad03a5862f236255648df15b8a4635eec1b",
+        "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+      }
+    }
+  ]
+}

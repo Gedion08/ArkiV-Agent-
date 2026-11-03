@@ -1,0 +1,22 @@
+{
+  "name": "@afr/store",
+  "version": "0.0.0",
+  "description": "L3 EvidenceStore + Arkiv/Postgres/memory implementations",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@afr/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root . --config ../../vitest.config.ts"
+  }
+}

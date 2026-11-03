@@ -1,0 +1,28 @@
+{
+  "name": "@afr/sdk",
+  "version": "0.0.0",
+  "description": "L2 public TS SDK (wrapTool, wrapModel, wrapWalletClient)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@afr/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root . --config ../../vitest.config.ts"
+  },
+  "dependencies": {
+    "@afr/core": "workspace:*",
+    "@afr/log": "workspace:*",
+    "@afr/recorder": "workspace:*",
+    "viem": "2.57.7"
+  }
+}

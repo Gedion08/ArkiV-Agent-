@@ -1,0 +1,35 @@
+{
+  "name": "@afr/recorder",
+  "version": "0.0.0",
+  "description": "L2 pipeline, journal, batcher, uploader, session keys",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@afr/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root . --config ../../vitest.config.ts",
+    "bench": "vitest run --root . --config ../../vitest.bench.config.ts --silent=false"
+  },
+  "dependencies": {
+    "@afr/core": "workspace:*",
+    "@afr/crypto": "workspace:*",
+    "@afr/log": "workspace:*",
+    "better-sqlite3": "13.0.3",
+    "viem": "2.57.7",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "9.6.0"
+  }
+}
