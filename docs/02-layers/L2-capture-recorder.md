@@ -416,7 +416,7 @@ store:
     access_key_env: ARKIV_ACCESS_KEY
     writer_key_env: AFR_ARKIV_WRITER_KEY
     evidence_lock: true
-    expiry: upfront           # upfront | rolling
+    expiry: rolling           # rolling (default; required when retention_days > 30) | upfront (≤ 30 d only), L3 §6
   postgres:
     url_env: AFR_STORE_PG_URL
   mirror: postgres            # optional second store written after primary (dual-write)

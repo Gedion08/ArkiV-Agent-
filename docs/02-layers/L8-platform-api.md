@@ -60,7 +60,7 @@ CREATE TABLE agents (
   id uuid PK, org_id uuid NOT NULL REFERENCES orgs,
   agent_id text NOT NULL UNIQUE, agent_key bytea NOT NULL UNIQUE,
   name text NOT NULL, operator bytea, privacy_level smallint NOT NULL DEFAULT 0,
-  retention_days int NOT NULL DEFAULT 365, expiry_strategy text NOT NULL DEFAULT 'upfront',
+  retention_days int NOT NULL DEFAULT 365, expiry_strategy text NOT NULL DEFAULT 'rolling',
   approval_threshold_cents bigint, watch_grace_s int NOT NULL DEFAULT 60,
   anchor_cadence_s int NOT NULL DEFAULT 600, status text NOT NULL DEFAULT 'active',  -- active|paused|archived
   profile_version bigint NOT NULL DEFAULT 0, profile_entity bytea,

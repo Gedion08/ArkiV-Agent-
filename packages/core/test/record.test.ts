@@ -9,6 +9,7 @@ import {
   hashHeader,
   keccakJcsData,
   REQUIRED_FIELDS,
+  U64Schema,
   verifyBody,
   ZERO_HASH,
 } from "../src/index.js";
@@ -132,5 +133,13 @@ describe("commitments and bodies", () => {
     );
     const h = buildHeader({ ...toolCall(), commit: commitmentsFor(body) }, chain0);
     expect(verifyBody(h, body)).toMatchObject([{ code: "REDACTED", severity: "info" }]);
+  });
+});
+
+describe("U64Schema", () => {
+  test("malformed strings fail safeParse instead of throwing", () => {
+    for (const s of [";0", "0x1", "1e3", " 1", "01", "-1", "18446744073709551616"])
+      expect(U64Schema.safeParse(s).success).toBe(false);
+    expect(U64Schema.safeParse("18446744073709551615").success).toBe(true);
   });
 });

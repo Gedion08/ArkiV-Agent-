@@ -40,7 +40,7 @@ export const ConfigSchema = z.strictObject({
           access_key_env: z.string().default("ARKIV_ACCESS_KEY"),
           writer_key_env: z.string().default("AFR_ARKIV_WRITER_KEY"),
           evidence_lock: z.boolean().default(true),
-          expiry: z.enum(["upfront", "rolling"]).default("upfront"),
+          expiry: z.enum(["upfront", "rolling"]).default("rolling"), // ADR-013 amendment (S6)
         })
         .optional(),
       postgres: z.strictObject({ url_env: z.string() }).optional(),

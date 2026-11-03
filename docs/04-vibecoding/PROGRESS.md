@@ -8,7 +8,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 |---|---|---|
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` (Docker not installed on dev box) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
-| P2 Evidence store | not started | |
+| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi) | Blocked: P2-06 Postgres (no Docker on dev box; needs `pg`), P2-07 part 2 (HPKE deps). Not started: P2-09…P2-16 |
 | P3 Anchor + verify | not started | |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
@@ -17,6 +17,65 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P2-04 batch frame
+- `@afr/store` `frame.ts` (L3 §4): `encodeFrame`/`decodeFrame`, `packPlaintext`/`unpackPlaintext`, `pad`/`unpad`, `encodeCanonical`.
+  - Deterministic CBOR via cbor-x (`useRecords:false, mapsAsObjects, variableMapSize, tagUint8Array:false`) plus our own RFC 8949 §4.2.1 key sort. cbor-x encodes ints > 2³²−1 as float64, so floats, negatives and ints > uint32 are rejected (`FRAME_INVALID`); u64 stays decimal strings.
+  - `decodeFrame` validates `pub` against `BatchPublicV1Schema`, checks `payload_ct_hash = keccak256(ct)` and rejects non-canonical encodings (re-encode must match byte for byte). `FRAME_TOO_LARGE` above `BATCH_MAX_FRAME_BYTES` on both sides.
+  - shortcut: fflate sync inflate has no output cap; the 64× frame-size check runs after inflating.
+- Deps (approved): `cbor-x` 1.6.8 (not the 2-day-old 1.6.9), `fflate` 0.8.3, exact pins; `cbor-extract` native build denied in `allowBuilds` (pure-JS path).
+- Bug fix in core: `U64Schema.safeParse(";0")` threw `SyntaxError` (zod runs `.refine` after a failed regex; `BigInt` threw). The refine now re-checks digits first. Accepted set unchanged, no vector impact. Found by the frame fuzz test; regression test in `core/test/record.test.ts`.
+- Tests: `store/test/frame.test.ts` (round-trip, key-order determinism, bucket property, max-size property, fuzzed/mutated input → typed errors only). `pnpm verify` green.
+- Next: P2-09 (keyset + equivocation), P2-10 (batcher + uploader, first frame caller).
+
+### 2026-11-04: P2-01 spikes, P2-02 docs, P2-03, P2-05, P2-08
+- **P2-01:** spikes S1–S10 ran on Rabdi with SDK 1.0.1. Scripts are in `tools/spikes/` (guarded writer `guard.ts`; public tx hashes journaled in `journal.ndjson`). Results are in SPIKES.md. Key findings:
+  - S3: lock in one batch works.
+  - S4: the SDK has no public encoder; we intercept `eth_sendTransaction` instead.
+  - S5: real limit ≈ 124 KiB frame (RPC request size); 120 KiB is kept.
+  - S6: **max lifetime 182.5 d**, gas ∝ bytes × lifetime.
+  - S9: permissionless extension of locked entities works.
+  - S7/S8: scaled to 1k entities; no rate limit hit.
+  - S10: 2,111/2,111 events over 1 h, 0 missed.
+  - Spend: ≈ 0.27 tGLM of 10.
+- **P2-02:** spike results propagated:
+  - L3 §2, §4, §5, §6, §7, §11, §13.
+  - ADR-011 and ADR-012 confirmed. **ADR-013 amended:** rolling expiry by default, upfront only for retention ≤ 30 d, because no entity can outlive 182.5 d.
+  - Arch §7.1, Arkiv facts and §12.2 (measured costs).
+  - L2 config example; L8 `expiry_strategy` default.
+  - Recorder config `store.arkiv.expiry` default `upfront` → `rolling`.
+  - No name mapping (`names.ts` dropped).
+- **P2-03:** `@afr/store` gains:
+  - `schemas.ts`: one spec drives both the SDK `defineSchema` objects and the portable `AttrsOf<S>` types; a test parses L3 §5 and asserts exact parity.
+  - `privacy.ts`: allowlists, attribute validation, `validatePut`.
+  - `types.ts`: §3 interface plus `StoreErrorCode`.
+- **P2-05:** `MemoryStore` + `MemoryChain`:
+  - Readonly, lock, permissionless extension, the `MAX_LIFETIME` cap and a block clock.
+  - `failNext` with timeout, revert, lost_response and 429.
+  - Conformance suite `test/conformance.ts` C1–C10 is green on memory.
+- **P2-08:** `arkiv/writer-queue.ts` + `arkiv/store.ts` + `client.ts` + `errors.ts`.
+  - Write-safety bounds: gas = max(floor, 2·est), ≤ half block; fresh nonce and gasPrice; spend cap.
+  - The hash is journaled before broadcast. Reconcile rebroadcasts the same bytes, or returns `uncertain` if the nonce was consumed.
+  - Engine reverts are decoded via `eth_call` into typed codes.
+  - 6 anvil tests use a STOP stub at the registry.
+  - **Rabdi conformance:** C1–C7, C9, C10 green (`ARKIV_E2E=1`, c5Count 20); C8 runs on memory only.
+  - Bugs found and fixed: viem `custom` transport retries would have re-signed (now `retryCount: 0` plus a once-per-run guard); `process.loadEnvFile` segfaults in vitest workers (now `util.parseEnv`).
+  - shortcut: ArkivStore.query pages by offset without a block pin (SDK exposes none); keyset/equivocation is P2-09.
+- **Deps:** `@afr/store` → `@arkiv-network/sdk` 1.0.1 and `viem` 2.57.7. Root dev: `@arkiv-network/sdk` and `viem`, for spikes. Both were already pinned in the repo.
+- **Tests:** store 24 (+10 Arkiv e2e). `pnpm verify` green. One run under load (avg ≈ 6.8) had timing flakes in proxy/core/recorder tests that passed on rerun and in isolation.
+- **Decisions needed:**
+  - Approve the HPKE deps (P2-07 part 2). (`cbor-x` + `fflate` approved; P2-04 done.)
+  - Sign off on the ADR-013 amendment.
+  - Postgres for P2-06 needs Docker or a local PG.
+- **Next:** P2-04 once deps are approved, then P2-09 (keyset + equivocation) and P2-10 (batcher + uploader).
+
+### 2026-11-04 — P1 close-out check, P2-07 part 1 (crypto without new deps)
+- P1 status: all 19 tickets done, exit demo passed. Open against the phase DoD: T9 (≤ 1 ms, P1-09) not met; "all tests pass in CI" unverified (no remote); demo screen recording not made (operator task).
+- Done: `@afr/crypto` split into `aes.ts` / `batch.ts` / `watch.ts`. L4 §3 `batchAad`, `encryptBatch`, `decryptBatch` (KEK_ID_MISMATCH → AAD_MISMATCH → DECRYPT_FAILED); §4 `kekIdFor`, `newEpochKek`, DEK wrap (60 B), `KEK_MAX_WRAPS = 2^20`; §10 `txCommit`, `userOpCommit`, `nonceCommit`; `sealAtRest` / `openAtRest`. Error code `KEY_INVALID` renamed to the spec's `INVALID_KEY`. Noble only (sync, isomorphic, no Node built-ins); WebCrypto not used because its AES-GCM is async-only.
+- Tests: crypto 11 — layouts cross-checked against ethers' ABI coder and node:crypto AES-GCM/HMAC, K2, K3, wrong KEK, K9 (15 malformed inputs → typed errors), K10. `pnpm verify` green.
+- Proposed doc edits / decisions needed: (1) `AFR_KEK_ID_V1` (L4 §4, normative) is missing from the Arch §21 registry and core `DOMAIN`; kept local in `batch.ts` until an ADR adds it. (2) K1 vectors (`crypto.json`) deferred: they include keygrant `enc‖ct`, and generating them in `packages/test-vectors` needs that package allowed to import `@afr/crypto` (layer map, Arch §3). L4 §12 updated to the implemented signatures.
+- Blocked: P2-01 spikes (no `.env` with `ARKIV_ACCESS_KEY` / `AFR_ARKIV_WRITER_KEY`); P2-02/03/04 depend on spike results. P2-07 part 2 (keygrants §5, reader backups §6) needs `@hpke/core` + `@hpke/dhkem-x25519` and `hash-wasm` (or `@noble/hashes` argon2id, already installed).
+- Next: P2-07 part 2 once deps are approved; P2-01 once Arkiv credentials exist.
 
 ### 2026-11-04 — P1 hot path
 - Done: found the R5 tail — WAL auto-checkpoint inside the insert (~20 ms every ~220 captures). Journal now disables auto-checkpoint and checkpoints (PASSIVE, 1 s) from a worker-thread connection, with fallback to auto-checkpoint if the worker exits; body sealing uses native AES-256-GCM (format unchanged, read path still noble, so every body read cross-checks it).

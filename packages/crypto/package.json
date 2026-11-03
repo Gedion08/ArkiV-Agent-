@@ -20,7 +20,12 @@
     "test": "vitest run --root . --config ../../vitest.config.ts"
   },
   "dependencies": {
+    "@afr/core": "workspace:*",
     "@noble/ciphers": "2.4.0",
-    "@noble/hashes": "2.4.0"
+    "@noble/hashes": "2.4.0",
+    "viem": "2.57.7"
+  },
+  "devDependencies": {
+    "ethers": "6.17.0"
   }
 }

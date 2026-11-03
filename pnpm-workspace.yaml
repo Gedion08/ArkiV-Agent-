@@ -4,5 +4,6 @@ packages:
   - contracts
 allowBuilds:
   better-sqlite3: true
+  cbor-extract: false
 onlyBuiltDependencies:
   - better-sqlite3

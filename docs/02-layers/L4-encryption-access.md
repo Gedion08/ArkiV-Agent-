@@ -175,9 +175,9 @@ Changing level is an `AgentProfile` update and applies to batches **from the nex
 ```ts
 // batch
 encryptBatch(plain: Uint8Array, ctx: BatchCtx, kek: EpochKek): { ct, iv, wrappedDek, payloadCtHash }
-decryptBatch(frame: BatchFrame, kek: EpochKek): Uint8Array        // verifies AAD; throws DecryptError codes
+decryptBatch({ ct, iv, wrappedDek, epochId, kekId }, ctx: BatchCtx, kek: EpochKek): Uint8Array   // epochId/kekId as the frame declares; verifies AAD
 // keks
-newEpochKek(agentKey, epochId): EpochKek                           // {epochId, kekId, key: CryptoKey|Uint8Array}
+newEpochKek(agentKey, epochId): EpochKek                           // {epochId, kekId, key: Uint8Array}; kekIdFor(agentKey, epochId, key)
 sealKeygrant(kek, readerPub, agentKey): { enc, ct }
 openKeygrant(grant, readerPriv, agentKey): EpochKek                // verifies kek_id
 // readers
@@ -185,9 +185,9 @@ generateReaderKey(): Promise<{ pub: Hex; priv: CryptoKey | Uint8Array }>
 exportReaderBackup(priv, passphrase): Promise<AfrKeyFile>
 importReaderBackup(file, passphrase): Promise<ReaderKey>
 // watch
-txCommit(watchKey, chainId, txHash): Hex; nonceCommit(...): Hex
+txCommit(watchKey, chainId, txHash): Hex; userOpCommit(...): Hex; nonceCommit(...): Hex
 // journal
-sealAtRest(key, bytes): Uint8Array; openAtRest(key, bytes): Uint8Array
+sealAtRest(key, bytes, aad?): Uint8Array; openAtRest(key, sealed, aad?): Uint8Array   // iv(12) ‖ ct ‖ tag
 ```
 
 Error codes: `INVALID_KEY`, `AAD_MISMATCH`, `DECRYPT_FAILED`, `KEK_ID_MISMATCH`, `HPKE_OPEN_FAILED`, `BACKUP_PASSPHRASE`, `CRYPTO_UNAVAILABLE`. Never include plaintext or key material in errors or logs.

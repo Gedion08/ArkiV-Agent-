@@ -16,7 +16,7 @@ Format: **Context → Decision → Consequences → Status**. ADRs are append-on
 | 010 | OpenZeppelin StandardMerkleTree everywhere | Accepted |
 | 011 | Evidence lock via ownership transfer to keyless address | Accepted, pending P2 spike |
 | 012 | Readonly + permissionlessExtension on evidence | Accepted |
-| 013 | Expiry strategy: upfront by default | Accepted |
+| 013 | Expiry strategy: upfront by default → amended 2026-11-04 (S6): rolling by default, upfront only ≤ 30 d | Accepted (amended) |
 | 014 | Tiered retention (payload vs. proofs) | Proposed (P6) |
 | 015 | HMAC tx commitments for hosted watcher | Accepted |
 | 016 | Two-phase capture (call + result records) | Accepted |
@@ -91,16 +91,19 @@ Format: **Context → Decision → Consequences → Status**. ADRs are append-on
 - **Context:** Readonly entities can still be **deleted** by their owner. A leaked writer key could delete evidence.
 - **Decision:** Atomically in one `executeBatch`: create the entity (readonly, permissionlessExtension) and `changeOwnership` of its **predicted key** to `EVIDENCE_LOCK_ADDRESS` (keyless, derived from a nothing-up-my-sleeve string).
 - **Consequences:** No one can delete or transfer locked evidence. Anyone can extend it. Early erasure is only possible through crypto-shredding. **Spike in P2:** confirm (a) `predictEntityKeys` + same-batch ownership change works, (b) transfer to an arbitrary address is allowed. **Fallback:** don't lock; rely on detectability (gaps + anchors) and the Postgres mirror.
+- **Spike result (S3, 2026-11-04, SDK 1.0.1/Rabdi):** confirmed. (a) The predicted key + same-batch `changeOwnership` lands atomically; the created key equals the prediction. (b) Transfer to the keyless lock address is allowed. On the locked entity, patch, transfer and delete by the writer fail with `NotOwner`. Fallback not needed.
 
 ### ADR-012 — Readonly + permissionlessExtension
 
 - **Decision:** All evidence entities are `readonly: true`, and all except attestations/delegations are `permissionlessExtension: true`.
 - **Consequences:** Auditors, insurers and counterparties can keep evidence alive past the customer's retention if they pay. That's a feature (litigation hold). It conflicts with data minimisation, which is why crypto-shredding is the erasure mechanism.
+- **Spike result (S9, 2026-11-04):** confirmed on a locked, readonly, `permissionlessExtension` entity: a non-owner extended it on-chain, and a stranger's `eth_call` passes. Without the flag, extension by a non-owner fails (`NotOwner`).
 
 ### ADR-013 — Upfront expiry
 
 - **Decision:** Default: create with `expiration = retention period` (`ExpirationTime.fromDays(retention_days)`). Optional `rolling` mode: create with 90 days, extension service renews (P6).
 - **Consequences:** No dependency on a renewal service for correctness. Higher upfront cost. Revisit once Arkiv mainnet pricing is known.
+- **Amendment (S6, 2026-11-04, SDK 1.0.1/Rabdi):** upfront expiry beyond ≈ 182.5 d is impossible (`MAX_LIFETIME` = 7,884,000 blocks from the create/extension block). Gas also grows with bytes × lifetime: a 96 KiB create at > ≈ 55 d breaks the write-safety bound (2 × estimate ≤ half block). New rule: `upfront` only for retention ≤ 30 d. Otherwise `rolling` is the **default**: create with 30 d, and an extension service (any funded account, thanks to ADR-012) extends in ≤ ≈ 110 d chunks before expiry. The extension service moves from P6 into the P2/P3 path for any retention > 30 d. Correctness now depends on that service running; detectability (gaps + anchors + mirror) still covers a lapse.
 
 ### ADR-014 — Tiered retention (proposed)
 

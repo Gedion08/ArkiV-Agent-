@@ -23,6 +23,6 @@ test("AES-GCM round-trips and authenticates key, iv, aad and ciphertext", () => 
     expect(f).toThrow(expect.objectContaining({ code: "DECRYPT_FAILED" }));
   }
   expect(() => aesGcmSeal(new Uint8Array(16), iv, pt, aad)).toThrow(
-    expect.objectContaining({ code: "KEY_INVALID" }),
+    expect.objectContaining({ code: "INVALID_KEY" }),
   );
 });

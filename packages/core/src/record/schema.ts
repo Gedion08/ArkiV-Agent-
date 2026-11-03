@@ -14,7 +14,8 @@ export const SigSchema = z.string().regex(/^0x[0-9a-f]{128}(1b|1c)$/, "65-byte r
 export const U64Schema = z
   .string()
   .regex(/^(0|[1-9][0-9]*)$/, "decimal string without leading zeros")
-  .refine((s) => s.length <= 20 && BigInt(s) <= U64_MAX, "exceeds uint64");
+  // the regex guard runs again: zod still runs refinements after a failed regex, and BigInt(";0") throws
+  .refine((s) => /^[0-9]{1,20}$/.test(s) && BigInt(s) <= U64_MAX, "exceeds uint64");
 /** JSON integers in hashed objects must be < 2^31 (L1 §3.5). */
 export const SmallUintSchema = z
   .number()

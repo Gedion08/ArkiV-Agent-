@@ -18,5 +18,15 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --root . --config ../../vitest.config.ts"
+  },
+  "dependencies": {
+    "@afr/core": "workspace:*",
+    "@arkiv-network/sdk": "1.0.1",
+    "cbor-x": "1.6.8",
+    "fflate": "0.8.3",
+    "viem": "2.57.7"
+  },
+  "devDependencies": {
+    "fast-check": "4.10.2"
   }
 }

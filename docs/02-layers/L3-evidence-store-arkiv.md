@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Package | `packages/store` → `@afr/store` |
-| Depends on | `@afr/core`, `@arkiv-network/sdk` (**exact pin**), `viem`, `cbor-x`, `fflate`, `pg` / `drizzle-orm` (Postgres impl) |
+| Depends on | `@afr/core`, `@arkiv-network/sdk` (**exact pin**, 1.0.1), `viem`, `cbor-x`, `fflate`, `pg` / `drizzle-orm` (Postgres impl) |
 | Used by | recorder (write), anchor service (write), watcher (read), verifier (read), dashboard (read, browser build excludes Postgres) |
 | Requirements | STO-01…STO-09, PRV-03, VER-03 |
 | Phase | P2 (core), P3 (anchor/checkpoint schemas), P6 (rolling expiry, extension service, tiered retention) |
@@ -28,19 +28,20 @@
 |---|---|---|
 | Testnet | Rabdi, chain `7794095`, RPC `https://rpc.rabdi.db-chain.testnet.arkiv.network`, WS same host `wss://` | docs.arkiv.network/networks/rabdi |
 | Block time | 2 s | docs |
-| SDK | `@arkiv-network/sdk` (develop = `1.0.0-dev.x`; README pins `^0.9.0`) + `viem` peer | GitHub `Arkiv-Network/arkiv-sdk-js` |
+| SDK | `@arkiv-network/sdk` **1.0.1** (exact pin) + `viem` 2.57.7 peer | S1 (2026-11-04) |
 | Chains export | `rabdi({ accessKey })`, `localhost` | `src/chains` |
 | Writes | `createEntity(schema, values, { expiration })`, `patchEntity`, `extendEntity`, `deleteEntity`, `changeOwnership`, `executeBatch({creates, patches, deletes, extensions, ownershipChanges})` (atomic; applied creates→patches→deletes→extensions→ownership) | SDK source |
-| Key prediction | `predictEntityKeys({ owner, count | salts })` (per-creator minting nonce) | SDK source, plugin write-safety |
+| Key prediction | `predictEntityKeys({ owner, count | salts })` (**public** action; keyed by the registry's per-owner `entityNonce`, not the tx nonce; pass the returned `salt` to the create) | S1, S3 |
 | Flags | `readonly`, `permissionlessExtension` (immutable at creation) | `src/entity/flags.ts` |
-| Limits | 32 attrs (31 with schema), name ≤ 32 B, `str` ≤ 128 B, `bytes` ≤ 128 KiB **total per create/patch**, page ≤ 100 rows | docs reference/limits |
+| Limits | 32 attrs (31 with schema), name ≤ 32 B, `str` ≤ 128 B, `bytes` ≤ 128 KiB **total per create/patch** (SDK-checked), page ≤ 100 rows. **Binding in practice:** the RPC rejects calldata above ≈ 131 KB, so a Batch frame + attrs fits up to ≈ 124 KiB of frame | docs reference/limits, S5 |
+| Gas | Linear in bytes × lifetime: 96 KiB create ≈ 4.03M gas (1 h) … 4.09M (1 d) … 15.4M (182.5 d); ≈ 650 gas per KiB-day; extension ≈ 46k + 650/KiB-day. Per-tx cap 2²⁴ (EIP-7825); block gas limit 30M; gasPrice 1 gwei on Rabdi | S6 |
 | Types | `bool, i32, u64, u256, dec, str, addr, key, bytes`. `bytes` can't be indexed or sorted | SDK README |
 | Query | `select().from(schema).where(expr).ownedBy()/createdBy().orderBy(asc|desc one key).limit().offset().fetch()`. `$createdAt`/`$updatedAt` not sortable | SDK README, plugin |
-| Events | `watchEntityEvents` follows head only. No historical reads | SDK source |
-| Node quirks | lowercase names only. `ne`/`exists`/`hasType` rejected by node. Unpinned pagination cursors can be rejected (-32005). HTTP 401/429 on bad key/quota | Arkiv plugin errata (verified on 0.8.1/Tiramisu, **re-verify on Rabdi**) |
-| Expiry | `ExpirationTime.fromDays/fromYears(365d)/atDate`. Extending counts from now. Can't shorten. No expiry event | docs writing/expiration |
+| Events | `watchEntityEvents` follows head only (viem `watchEvent`; `eth_newFilter` is unavailable, so it polls `eth_getLogs`). Events carry key/owner/expiry, no schema or attrs. `eth_getLogs` only covers ≈ the last 1,000 blocks | SDK source, S10 |
+| Node quirks | Names are case-sensitive, grammar `^[A-Za-z][A-Za-z0-9._-]*$`, query keywords/type tags reserved (we use lowercase snake_case anyway). State reads at head only (`-32603` otherwise). `eth_estimateGas` drops revert data: decode engine errors (`NotOwner`, `ReadOnlyEntity`, `ExpiryNotExtended`, …) with `eth_call`. Occasional transient HTTP failures on reads (retry reads, never writes). No 429 seen at ≈ 2,450 queries/min | S2, S9, S8 |
+| Expiry | `ExpirationTime.fromDays/fromHours/atDate/max()`. **Max lifetime 7,884,000 blocks ≈ 182.5 d from the block of the create or extension**; longer is refused client-side (`InvalidExpiryError`). Extending counts from now and must move expiry later (`ExpiryNotExtended`). No expiry event | SDK `MAX_LIFETIME`, S6, S9 |
 
-> ⚠️ **Version drift:** the Arkiv Claude plugin skills were verified against SDK 0.8.1 on the older *Tiramisu* network, and the SDK repo is now at 1.0.0-dev on *Rabdi*. Before P2 coding, run the **spike checklist** (§12) against the exact version you pin.
+> Re-run the **spike checklist** (§12, scripts in `tools/spikes/`) on every SDK upgrade. Results for 1.0.1 on Rabdi: `docs/04-vibecoding/SPIKES.md` S1–S10.
 
 ---
 
@@ -132,13 +133,13 @@ payload_ct_hash = keccak256(ct)
 
 - Headers are carried as **their JCS strings**, so verifiers hash exactly what was signed without re-canonicalising.
 - The frame is deterministic given the same inputs and IV. The IV is chosen once and journaled (`batches.frame` stores final bytes), so a re-upload after a rollback writes identical bytes.
-- Max frame: `BATCH_MAX_FRAME_BYTES` = 120 KiB (attrs + ABI framing take the rest of the 128 KiB).
+- Max frame: `BATCH_MAX_FRAME_BYTES` = 120 KiB. S5 measured: 120 KiB frames with all Batch attrs land (126,788 B calldata); the RPC rejects calldata above ≈ 131 KB (frames ≥ 126 KiB).
 
 ---
 
 ## 5. Arkiv schemas [NORMATIVE]
 
-All names are lowercase snake_case. **Spike S2** confirms that underscores and dots are accepted. If they aren't, the fallback mapping is `seq_from → seqfrom`, defined in `names.ts`. Never hand-write attribute names outside `schemas.ts`.
+All names are lowercase snake_case. **Spike S2 (2026-11-04)** confirmed that dots (schema names) and underscores (attributes) are accepted, so no name mapping exists. Never hand-write attribute names outside `schemas.ts`.
 
 ```ts
 import { addr, bool, bytes, defineSchema, str, u64 } from "@arkiv-network/sdk/schema";
@@ -262,11 +263,13 @@ A unit test asserts that no other attribute can be written at each level.
 
 | Strategy | Create | Maintenance |
 |---|---|---|
-| `upfront` (default) | `ExpirationTime.fromDays(retention_days)` | none |
-| `rolling` (v1) | `fromDays(90)` | Extension service (`apps/anchor` job): daily query `$expiresAt < now + 30d` by `createdBy(writers)`, then `extendEntity` (permissionless) to `min(created + retention, now + 90d)` |
+| `upfront` | `fromDays(retention_days)`, **only if** `retention_days ≤ 30` | none |
+| `rolling` (default for retention > 30 d) | `fromDays(30)` | Extension service (`apps/anchor` job): daily query `$expiresAt < now + 30d` by `createdBy(writers)`, then `extendEntity` (permissionless) to `min(created + retention, now + 90d)` |
+
+Why (S6, ADR-013 amendment): no entity can live more than ≈ 182.5 d past its latest create/extension, and gas grows with bytes × lifetime. A 96 KiB create at > ≈ 55 d breaks the write-safety bound (2 × estimate ≤ half a block = 15M), so long retention must be built from short creates plus extensions. A 96 KiB batch costs ≈ 4.1M gas for 1 d, ≈ 27M gas for 1 y and ≈ 164M gas for 7 y (sum over the extension txs).
 
 - Retention past the plan (litigation hold): any party can extend, thanks to `permissionlessExtension`.
-- Agent profile entity: 400 days, renewed by the recorder on every start if < 60 days remain.
+- Agent profile entity: 180 days, renewed by the recorder on every start if < 60 days remain.
 - Track `expiresAtBlock` in metadata. The dashboard shows "evidence expires on …".
 
 ---
@@ -281,9 +284,12 @@ prepare(req):
   [lockKey] = predictEntityKeys({ owner: writer, count: 1 })   // per-creator minting nonce
   ops = { creates: [ {schema, values, expiration, flags} ],
           ownershipChanges: req.lock ? [ { entityKey: lockKey, newOwner: EVIDENCE_LOCK_ADDRESS } ] : [] }
-  estimate gas (unsigned); check GLM balance ≥ est × 1.5 and ≤ spend cap
-  nonce = local nonce counter (initialised from getTransactionCount(pending))
-  signed = walletClient.signTransaction(build(ops, nonce, gas, fees))
+  calldata = SDK executeBatch(ops) through an intercepting EIP-1193 transport (S4)
+  estimate = eth_estimateGas(calldata, latest)                // stop if it fails
+  gas = max(1_000_000 + 400_000·(N_ops − 1), 2 × estimate); stop if gas > latest.gasLimit / 2
+  nonce = getTransactionCount(latest); gasPrice = eth_gasPrice; legacy tx
+  check balance ≥ gas × gasPrice and spend cap
+  signed = signTransaction(build(calldata, nonce, gas, gasPrice))
   journal: state=submitting, signed_tx, tx_hash=keccak(signed), predicted_key, writer_nonce   (fsync)
 submit():
   sendRawTransaction(signed)   // transport errors → stay 'submitting'; never re-sign
@@ -302,7 +308,9 @@ verify():
 - Restart: anything `submitting` → `reconcile()`: look up receipt by `tx_hash`. If unknown, check whether the nonce was consumed (`getTransactionCount(latest) > writer_nonce`). If consumed by a different tx → `uncertain` → alert ops. If not consumed → rebroadcast the **same signed bytes**.
 - 401 → config error (stop). 429 → backoff, respecting `Retry-After`.
 - ⚠️ The SDK's `executeBatch` returns created keys without expirations. Read `expiresAt` from events or `getEntity`.
-- Raw `signTransaction` + `sendRawTransaction` needs the SDK's encoded calldata. **Spike S4:** find the SDK internal (`sendArkivTransaction` in `utils/arkivTransactions.ts`) or an exported encoder so the tx can be signed before sending. If there isn't one, use `executeBatch` with an explicit `nonce` in `TxParams`, record `prepared(nonce)` before the call, and reconcile by nonce.
+- **Spike S4 (resolved):** the SDK exports no encoder, but it sends through a viem wallet client. The WriterQueue gives it a custom EIP-1193 transport that intercepts `eth_sendTransaction`, decodes the `execute` calldata, applies the gas/nonce rules above, signs locally, journals `keccak(signed)` and only then broadcasts. viem never retries `sendRawTransaction`. Reference implementation: `tools/spikes/guard.ts`. **Pitfall (found in P2-08):** viem's `custom` transport retries failed requests by default, which would re-enter the interceptor and sign a second time. The WriterQueue sets `retryCount: 0` and refuses a second signature within one run. Implementation: `packages/store/src/arkiv/writer-queue.ts`.
+- The write-safety floor (1M + 400k per extra op ≤ half block) caps a tx at 36 ops, i.e. 18 locked creates. A 96 KiB batch is one create per tx anyway (S5).
+- Out of gas (`gasUsed == gas`) is the only case where a **new** signature may follow (once, with ≥ 2× the previous gas). Every other failure is reconciled without signing.
 
 ---
 
@@ -380,7 +388,7 @@ Runs against memory and Postgres in CI, and Arkiv testnet nightly (`ARKIV_E2E=1`
 | C4 | permissionless extension by a different account succeeds. Shortening fails |
 | C5 | query by agent_key/lane/seq range with keyset pagination over 250 entities returns all, in order, no duplicates |
 | C6 | createdBy filter excludes entities from other writers |
-| C7 | 120 KiB frame accepted. 129 KiB rejected client-side before sending |
+| C7 | 120 KiB frame accepted. A frame > `BATCH_MAX_FRAME_BYTES` rejected client-side before sending |
 | C8 | reconcile after injected lost response → confirmed, no duplicate entity |
 | C9 | privacy-level attribute allowlist enforced |
 | C10 | expiry: entity not returned after expiry (memory/pg simulated; Arkiv: short-lived entity, 1-min test) |
@@ -412,7 +420,6 @@ packages/store/
 │  ├─ index.ts
 │  ├─ types.ts               # EvidenceStore, PutRequest, ...
 │  ├─ schemas.ts             # defineSchema(...) for all kinds (§5)
-│  ├─ names.ts               # attribute name mapping (spike S2)
 │  ├─ privacy.ts             # attr allowlists per level
 │  ├─ frame.ts               # encode/decode/pad (§4)
 │  ├─ evidence.ts            # typed helpers (§3)

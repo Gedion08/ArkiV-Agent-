@@ -329,7 +329,7 @@ Full schemas live in [L3](../02-layers/L3-evidence-store-arkiv.md), records in [
 
 | Schema name | Written by (signer of payload) | Arkiv tx sender | Flags | Lock | Expiry |
 |---|---|---|---|---|---|
-| `afr.agent.v1` | operator wallet (EIP-712 `AgentProfile`) | recorder writer or dashboard | mutable (patchable) | no | 400 days, renewed |
+| `afr.agent.v1` | operator wallet (EIP-712 `AgentProfile`) | recorder writer or dashboard | mutable (patchable) | no | 180 days, renewed |
 | `afr.delegation.v1` | operator wallet (EIP-712 `Delegation`) | writer | readonly | yes | = retention |
 | `afr.revocation.v1` | operator wallet (EIP-712 `Revocation`) | writer / dashboard | readonly | yes | = retention |
 | `afr.batch.v1` | session key (EIP-191 batch digest) | writer | readonly, permissionlessExtension | yes | = retention |
@@ -338,7 +338,7 @@ Full schemas live in [L3](../02-layers/L3-evidence-store-arkiv.md), records in [
 | `afr.checkpoint.v1` | anchor service key | anchor service | readonly, permissionlessExtension | yes | = agent retention |
 | `afr.attestation.v1` | auditor/validator wallet (EIP-712 `Attestation`) | auditor | readonly | optional | audit period |
 | `afr.action.v1` (privacy 2) | session key | writer | readonly | yes | = retention |
-| `afr.readerkey.v1` | reader's wallet (EIP-712 `ReaderKey`) | dashboard | readonly | no | 2 years |
+| `afr.readerkey.v1` | reader's wallet (EIP-712 `ReaderKey`) | dashboard | readonly | no | 2 years (rolling) |
 
 **Invariant D1 (provenance):** The verifier trusts **only signatures inside payloads**, never `$owner`/`$creator`. Arkiv metadata is used for discovery only. (Arkiv's own guidance: "owner is not payload provenance".)
 
@@ -380,15 +380,15 @@ Full detail and test vectors are in [L1](../02-layers/L1-record-format-and-crypt
 
 ## 9. Arkiv integration summary
 
-Verified facts (2026-11-01; re-verify each SDK upgrade, see [L3 §2](../02-layers/L3-evidence-store-arkiv.md)):
+Verified facts (2026-11-01, spikes 2026-11-04 on SDK 1.0.1; re-verify each SDK upgrade, see [L3 §2](../02-layers/L3-evidence-store-arkiv.md)):
 
 - Network **Rabdi** testnet: chain ID `7794095`, RPC `https://rpc.rabdi.db-chain.testnet.arkiv.network`, WS `wss://…`, 2 s blocks, gas in tGLM. Explorer at `rabdi.explorer.arkiv.network`. Access keys at `hub.arkiv.network/access-keys` (the public RPC is heavily rate-limited).
 - SDK `@arkiv-network/sdk` builds on viem. It has `defineSchema`, `createEntity`, `patchEntity`, `extendEntity`, `deleteEntity`, `changeOwnership`, `executeBatch` (atomic, applied in order creates → patches → deletes → extensions → ownership changes), `predictEntityKeys`, `getEntity`, query builder (`select().from().where().orderBy().limit().offset()`), and `watchEntityEvents`.
 - Limits: 32 attributes/entity (31 with schema tag), attribute name ≤ 32 bytes, `str` ≤ 128 bytes, `bytes` ≤ 128 KiB per value **and per create/patch total**, 100 rows per query page.
 - Creation flags (immutable): `readonly`, `permissionlessExtension`.
-- Expiry is block-based: `ExpirationTime.fromDays/fromYears/atDate` (year = 365 days, month = 30 days). Extending counts from *now*. There is no expiry event.
+- Expiry is block-based: `ExpirationTime.fromDays/fromHours/atDate/max()`. **No entity lives more than ≈ 182.5 d (7,884,000 blocks) past its latest create/extension**, so "= retention" above means create + scheduled extensions (ADR-013 amendment, L3 §6). Extending counts from *now* and must move expiry later. There is no expiry event.
 - No historical event reads: start the watcher, then query state.
-- Known node quirks (from the Arkiv plugin errata): lowercase names only. Avoid `ne`/`exists`/`hasType` predicates. Pin a block for pagination.
+- Known node quirks: state reads at head only. `eth_estimateGas` drops revert data (use `eth_call`). `eth_newFilter` unavailable. The RPC rejects calldata above ≈ 131 KB. Details: SPIKES.md S1–S10.
 
 **AFR design choices that follow** (ADRs 004–012):
 - Batches, not entity-per-action (cost and limits).
@@ -466,6 +466,7 @@ Typical sizes (estimates to validate in P2):
 - Header ≈ 600–900 B JSON. Body ≈ 0.5–20 KiB depending on context capture. Compressed ratio ~3–6× for JSON.
 - Public section per record ≈ 32 (hash) + 65 (sig) + 32 (tx commitment, if any) B.
 - A 96 KiB batch ≈ 50–300 records.
+- **Measured (S6, Rabdi, 1 gwei):** gas ≈ 650 per KiB-day of lifetime plus ≈ 4.0M per 96 KiB create (calldata + base). A 96 KiB batch costs ≈ 4.1M gas (0.0041 tGLM) for 1 d, ≈ 27M (0.027 tGLM) for 1 y and ≈ 164M (0.16 tGLM) for 7 y. A small locked entity costs ≈ 220k gas.
 
 **Levers:** larger batches, compression, context capture mode (`hash_only` / `summary` / `full`), shared anchors, tiered retention (full payload for N years, then only checkpoints + public sections, ADR-014).
 
