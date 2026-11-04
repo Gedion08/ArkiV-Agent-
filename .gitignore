@@ -11,3 +11,8 @@ contracts/cache/
 contracts/broadcast/
 *.sqlite
 *.sqlite-*
+
+# reader-key backups (L4 §6) and decrypt-agent output: never commit
+*.afrkey
+/records.json
+/.afr-demo/

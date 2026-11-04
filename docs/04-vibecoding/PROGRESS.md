@@ -8,7 +8,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 |---|---|---|
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
-| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓ | Exit demo on Rabdi pending (needs writes). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
+| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | DoD left: cost model, chaos, attribute plaintext check. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
 | P3 Anchor + verify | not started | |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
@@ -57,7 +57,12 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
   - a magic-suffixed wrapper that doesn't decode;
   - no `siweClient` configured.
   - Also checked: after the wallet is really deployed, plain 1271 and the wrapper both log in as the same user. No code changes were needed.
-- Next: P2 exit demo (recorder → Rabdi → decrypt-agent), then the P2 definition-of-done items.
+- **P2 exit demo passed (Rabdi):**
+  - Ran `tools/scripts/exit-demo.ts --reader <x25519 pub>`: a dev `local:` agent with the operator key in git-ignored `.afr-demo/`, a durable fsync'd file write journal, and a 0.05 tGLM spend cap.
+  - It wrote the delegation, profile, a keygrant to the reader, and 2 batches. 5 txs, all receipts `success`.
+  - `decrypt-agent decrypt --reader-key reader.afrkey --writer …` then gave `ok: true`, 2 batches, 6 records (session_start, 4 tool calls, session_end) and no findings.
+  - Caveat: `Recorder.close()` waits only 5 s for uploads. The session_end write was broadcast and confirmed on-chain, but the local journal still says `submitting`. The next run reconciles it without resending.
+- Next: the P2 definition-of-done items (S6 cost numbers in Arch §12.2, chaos test, an automated no-plaintext-in-attributes check over the e2e run).
 
 ### 2026-11-04: apps/api hardening, part 2 (closes the remaining hardening shortcuts)
 - Rate limits on Redis (`ApiOptions.redis`, ioredis 6.0.0, `skipOnError`). Redis 7.4.6 added to compose; `AFR_REDIS_URL` and `AFR_SMTP_URL` are in turbo's test env.
