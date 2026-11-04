@@ -40,7 +40,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
   - the `APP=api` image (519 MB, uid 1000, no `.env`): no config → `CONFIG`, exit 1;
   - against compose Postgres it migrates, serves `/healthz` and `/v1/auth/nonce` (200), and `docker stop` exits 0;
   - `terraform fmt`/`validate` still pass.
-- Load flake seen in a full `pnpm verify`: the recorder's "background checkpointer keeps the WAL from growing" test waits 2.5 s and lost under a parallel Docker build. It passes alone and was left unchanged.
+- Load flake seen in a full `pnpm verify`: the recorder's "background checkpointer keeps the WAL from growing" test waits 2.5 s and lost under a parallel Docker build. Fixed later (2026-11-05): it now polls the `-shm` wal-index until the worker has backfilled every frame, then asserts the next batch restarted the WAL (salt-1 changed). The old size bound (`< 1.5×`) was dropped because under load the checkpointer also runs mid-batch and its read mark can delay a restart. It passed 8/8 under 2×nproc busy loops (was 1/6 with a frame-count check, 4/5 with the size bound).
 
 ### 2026-11-04: P3-12 KMS signer + staging Terraform
 - `apps/anchor/src/kms.ts` (L5 §3.3 note): `kmsAccount(awsKms(KMSClient, keyId))` gives a viem account that signs transactions, typed data and messages through KMS `Sign` (DIGEST) with strict DER parsing, low-s and `v` by recovery. `main` uses it when `AFR_ANCHOR_KMS_KEY_ID` is set.

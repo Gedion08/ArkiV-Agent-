@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { endianness, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildBody, buildHeader, hashHeader, jcs, localSigner, ZERO_HASH } from "@afr/core";
 import { createCanary } from "@afr/log";
@@ -116,20 +116,34 @@ describe("P1-11 journal", () => {
       notBefore: 0,
       notAfter: 1,
     });
-    const wal = () => statSync(`${path}-wal`).size;
     let prev: `0x${string}` = ZERO_HASH;
     const batch = (from: number) => {
       for (let i = from; i < from + 300; i++)
         prev = append(j, BigInt(i), prev, { m: "x".repeat(2048) });
     };
+    // Wait for the worker's checkpoint itself, not a fixed sleep (its thread can start late under load).
+    // The -shm wal-index header (SQLite wal.c) holds WalIndexHdr.mxFrame at byte 16 and
+    // WalCkptInfo.nBackfill at byte 96, in native byte order; reading the file leaves SQLite untouched.
+    const shm = (at: number) => {
+      const b = readFileSync(`${path}-shm`);
+      return endianness() === "LE" ? b.readUInt32LE(at) : b.readUInt32BE(at);
+    };
+    const backfilled = () => shm(16) > 0 && shm(96) === shm(16);
     batch(0);
-    const first = wal();
-    await new Promise((r) => setTimeout(r, 2500)); // > CHECKPOINT_MS: the worker checkpoints
-    batch(300); // a fully checkpointed WAL is rewritten from the start
-    expect(wal()).toBeLessThan(first * 1.5);
+    expect(backfilled()).toBe(false); // auto-checkpoint is off: nothing copied back yet
+    for (const deadline = Date.now() + 25_000; !backfilled(); ) {
+      if (Date.now() > deadline) throw new Error("the background checkpointer never ran");
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    // A fully checkpointed WAL is rewritten from the start, and every restart bumps salt-1
+    // (WalIndexHdr.aSalt, byte 32). Sizes and frame counts aren't stable signals: under load the
+    // checkpointer also runs mid-batch, and its read mark can delay a restart by a few writes.
+    const salt = shm(32);
+    batch(300);
+    expect(shm(32)).not.toBe(salt);
     expect(j.readBody(599n).args).toEqual({ m: "x".repeat(2048) });
     j.close();
-  }, 20_000);
+  }, 30_000);
 
   test("duplicate seq is rejected atomically", () => {
     const j = open(join(mkdtempSync(join(tmpdir(), "afr-j-")), "journal.sqlite"));
