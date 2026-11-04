@@ -30,7 +30,7 @@
 | API user (v1) | org API key `afr_ok_…` | org, role-limited |
 | SSO (P7) | OIDC/SAML via WorkOS or similar | org |
 
-**Roles:** `owner` (billing, delete org), `admin` (agents, members, grants), `engineer` (agents, keys, alerts), `viewer` (read), `auditor` (read assigned agents only, no settings).
+**Roles:** `owner` (billing, delete org), `admin` (agents, members, grants), `engineer` (agents, keys, alerts), `viewer` (read), `auditor` (read assigned agents only, no settings). Assignments live in `agent_auditors` (owner/admin, §4.3): an auditor's agent list holds only assigned agents, any other agent is 404, and the member and invitation lists are 403. Changing a member's role away from `auditor`, or removing them, drops their assignments.
 
 | Action | owner | admin | engineer | viewer | auditor |
 |---|:-:|:-:|:-:|:-:|:-:|
@@ -46,7 +46,7 @@
 
 ## 3. Database schema (Drizzle; abbreviated DDL)
 
-> The API uses raw SQL migrations over `pg` (`apps/api/src/db/migrations.ts`) with the tables needed so far, plus `sessions`, `siwe_nonces`, `tx_intents` and `orgs.dek_wrapped` (§8). Drizzle and pg-boss arrive with the tickets that need them.
+> The API uses raw SQL migrations over `pg` (`apps/api/src/db/migrations.ts`) with the tables needed so far, plus `sessions`, `siwe_nonces`, `tx_intents`, `orgs.dek_wrapped` (§8) and `agent_auditors(org_id, agent_id, user_id, added_by, added_at)` (§2). Drizzle and pg-boss arrive with the tickets that need them.
 
 ```sql
 -- tenancy
@@ -135,10 +135,10 @@ CREATE TABLE audit_log (id bigserial PK, org_id uuid, actor text, action text, t
 
 ### 4.2 Orgs, members
 
-`GET/POST /v1/orgs`, `GET/PATCH /v1/orgs/{org}`, `GET/POST/DELETE /v1/orgs/{org}/members`, `POST /v1/orgs/{org}/invitations`, `POST /v1/invitations/accept`.
+`GET/POST /v1/orgs`, `GET/PATCH /v1/orgs/{org}`, `GET/POST/DELETE /v1/orgs/{org}/members`, `GET/POST /v1/orgs/{org}/invitations`, `DELETE /v1/orgs/{org}/invitations/{id}`, `POST /v1/invitations/accept`.
 
 - `POST /members {wallet, role}` adds a wallet or changes a member's role. `DELETE /members/{userId}`: owner/admin, or a member leaving. Only an owner grants, demotes or removes `owner`, and the last owner stays (409 `LAST_OWNER`).
-- Invitations: `{role, wallet?, email?}` → `afr_inv_<64 hex>` (shown once, only its sha256 stored, 7 days, single use). A `wallet` binds it to that signer; accepting as anyone else is 404. An existing member keeps their role.
+- Invitations: `{role, wallet?, email?}` → `afr_inv_<64 hex>` (shown once, only its sha256 stored, 7 days, single use). A `wallet` binds it to that signer; accepting as anyone else is 404. An existing member keeps their role. With an `email` and a configured mailer (SMTP), the API sends `{dashboardOrigin}/invite#<token>` after commit; the token is in the fragment so it never reaches a server log. The response says `email_sent`, and a failed send leaves the invitation valid (logged by error code only). `GET` lists pending invitations (owner/admin, never the token); `DELETE` revokes one (audited), after which accepting is 404.
 
 ### 4.3 Agents
 
@@ -149,6 +149,7 @@ CREATE TABLE audit_log (id bigserial PK, org_id uuid, actor text, action text, t
 | POST | `/v1/agents/{id}/recorder-keys` | → `afr_rk_…` (shown once) |
 | DELETE | `/v1/agents/{id}/recorder-keys/{keyId}` | |
 | GET/POST/DELETE | `/v1/agents/{id}/watched-addresses` | `{chain_id, address, kind: eoa\|smart_account\|safe\|session_key, since_block?}`; re-adding returns the existing row (200) |
+| GET/POST/DELETE | `/v1/agents/{id}/auditors` | owner/admin. `POST {user_id}`: the member must have role `auditor` (else 409 `NOT_AN_AUDITOR`); idempotent. `DELETE /auditors/{userId}` |
 | GET | `/v1/agents/{id}/lanes` | status per lane |
 | GET | `/v1/agents/{id}/batches?lane&from_seq&limit` | public index (UI convenience, verifiable against Arkiv); `limit` ≤ 500, cursor `next_from_seq` |
 | GET | `/v1/agents/{id}/checkpoints?lane&after_seq&limit` | cursor `next_after_seq` |
@@ -245,15 +246,17 @@ Stripe Billing: products/prices per plan + metered prices. Customer portal for i
 | Public | 5 req/s per IP. Summary is cached for 5 min |
 | Auth nonce, SIWE login | 10/min per IP |
 
+Counters live in Redis (`ApiOptions.redis`, namespace `afr-rl:`), so every API instance shares one budget. If Redis is down, limiting is skipped rather than failing requests. Without Redis (dev), each instance counts alone.
+
 ---
 
 ## 8. Security requirements
 
 - Input validation via Zod on every route. Unknown fields are rejected (`.strict()`).
-- Secrets (channel configs, watch keys, pre-signed revocations) are encrypted with KMS envelope keys per org: each org's random AES-256 DEK is stored only wrapped by the KEK (`kmsKeyWrapper`: KMS `Encrypt`/`Decrypt` with encryption context `{afr_org}`; `localKeyWrapper` for dev), and secrets are sealed `0x01 ‖ iv ‖ AES-GCM(dek, iv, plain, aad)` with the agent key or session key as AAD.
+- Secrets (channel configs, watch keys, pre-signed revocations) are encrypted with KMS envelope keys per org: each org's random AES-256 DEK is stored only wrapped by the KEK (`kmsKeyWrapper`: KMS `Encrypt`/`Decrypt` with encryption context `{afr_org}`; `localKeyWrapper` for dev), and secrets are sealed `0x01 ‖ iv ‖ AES-GCM(dek, iv, plain, aad)` with the agent key or session key as AAD. Unwrapped DEKs are cached LRU (default 1000 orgs) for 15 min, and evicted keys are zeroed. `migrateLegacySecrets` re-seals pre-v2 data (`iv ‖ AES-GCM(master)` under the old single master key) into this format. It is idempotent and leaves rows that changed meanwhile untouched.
 - Audit log for every mutation: who, what, from which IP.
 - CSRF: double-submit token + SameSite=Strict.
-- CORS: dashboard origin only.
+- CORS: `@fastify/cors`, only `ApiOptions.dashboardOrigin` (exact match, with credentials). Without one, no CORS headers.
 - Security headers via `@fastify/helmet`.
 - Dependency pinning, SBOM in CI.
 - PII minimisation: email is optional, the wallet is the identity.

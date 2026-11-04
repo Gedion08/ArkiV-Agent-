@@ -1,14 +1,30 @@
 // L8 §4.1: SIWE for smart-contract wallets (ERC-1271) through `siweClient`. A mock wallet (fixtures/
-// MockWallet.sol) is placed on anvil; its owner EOA signs. Needs AFR_PG_URL and AFR_ANVIL_URL (pnpm local:up).
+// MockWallet.sol) is placed on anvil, or left undeployed behind its factory (ERC-6492); its owner EOA signs. Needs AFR_PG_URL and AFR_ANVIL_URL (pnpm local:up).
 import { randomBytes } from "node:crypto";
 import pg from "pg";
-import { createTestClient, type Hex, http, pad, publicActions } from "viem";
+import {
+  concat,
+  createTestClient,
+  encodeAbiParameters,
+  encodeFunctionData,
+  getContractAddress,
+  type Hex,
+  http,
+  pad,
+  parseAbi,
+  publicActions,
+} from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { foundry } from "viem/chains";
 import { createSiweMessage } from "viem/siwe";
+import { serializeErc6492Signature } from "viem/utils";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { buildServer, localKeyWrapper, migrate } from "../src/index.js";
-import { MOCK_WALLET_RUNTIME } from "./fixtures/mock-wallet.js";
+import {
+  MOCK_WALLET_FACTORY_RUNTIME,
+  MOCK_WALLET_INIT,
+  MOCK_WALLET_RUNTIME,
+} from "./fixtures/mock-wallet.js";
 
 const PG = process.env.AFR_PG_URL;
 const ANVIL = process.env.AFR_ANVIL_URL;
@@ -92,5 +108,38 @@ describe.skipIf(!PG || !ANVIL)("SIWE with ERC-1271 wallets", () => {
     // no code at the address: an EOA signature must recover to it
     const eoa = `0x${randomBytes(20).toString("hex")}` as Hex;
     expect((await siwe(eoa, (message) => owner.signMessage({ message }))).statusCode).toBe(401);
+  });
+
+  test("ERC-6492: a not-yet-deployed wallet logs in via its factory calldata; nothing is deployed", async () => {
+    const factory = `0x${randomBytes(20).toString("hex")}` as Hex;
+    await chain.setCode({ address: factory, bytecode: MOCK_WALLET_FACTORY_RUNTIME as Hex });
+    const owner = privateKeyToAccount(generatePrivateKey());
+    const intruder = privateKeyToAccount(generatePrivateKey());
+    const salt = `0x${randomBytes(32).toString("hex")}` as Hex;
+    const w = getContractAddress({
+      opcode: "CREATE2",
+      from: factory,
+      salt,
+      bytecode: concat([
+        MOCK_WALLET_INIT as Hex,
+        encodeAbiParameters([{ type: "address" }], [owner.address]),
+      ]),
+    });
+    const data = encodeFunctionData({
+      abi: parseAbi(["function deploy(address owner, bytes32 salt) returns (address)"]),
+      functionName: "deploy",
+      args: [owner.address, salt],
+    });
+    const wrapped = (by: typeof owner) => async (message: string) =>
+      serializeErc6492Signature({
+        address: factory,
+        data,
+        signature: await by.signMessage({ message }),
+      });
+    expect((await siwe(w, wrapped(intruder))).statusCode).toBe(401);
+    const res = await siwe(w, wrapped(owner));
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.wallet).toBe(w.toLowerCase());
+    expect(await chain.getCode({ address: w })).toBeUndefined(); // verified by simulation only
   });
 });

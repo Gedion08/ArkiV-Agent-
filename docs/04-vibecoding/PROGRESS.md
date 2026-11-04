@@ -8,7 +8,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 |---|---|---|
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
-| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps), P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓, P2-15 ✓ | Blocked: P2-07 part 2 (HPKE deps). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). Not started: P2-16 |
+| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps), P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓ | Blocked: P2-07 part 2 (HPKE deps). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). Not started: P2-16 |
 | P3 Anchor + verify | not started | |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
@@ -17,6 +17,18 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: apps/api hardening, part 2 (closes the remaining hardening shortcuts)
+- Rate limits on Redis (`ApiOptions.redis`, ioredis 6.0.0, `skipOnError`). Redis 7.4.6 added to compose; `AFR_REDIS_URL` and `AFR_SMTP_URL` are in turbo's test env.
+- `OrgSecrets` DEK cache: LRU (`maxCached`, default 1000) plus TTL (`ttlMs`, default 15 min), injectable clock, evicted keys zeroed.
+- `migrateLegacySecrets({pool, secrets, legacyMasterKey})` re-seals old master-key watch keys and pre-signed revocations. Returns `{migrated, current, failed}`.
+- Invitations: `GET` (pending, admin) and `DELETE /v1/orgs/{org}/invitations/{id}` (revoke, audited). Email via `smtpMailer` (nodemailer 10.1.7) after commit, link `{dashboardOrigin}/invite#token`, `email_sent` in the response.
+- Auditors: migration v3 `agent_auditors` (RLS). `GET/POST/DELETE /v1/agents/{id}/auditors`. Auditors see only assigned agents (404 otherwise) and get 403 on member and invitation lists. Assignments are dropped on role change or removal.
+- CORS: `@fastify/cors` 11.3.1, `dashboardOrigin` only.
+- ERC-6492: `MockWallet` gained a constructor plus a `MockWalletFactory` (CREATE2). The test signs for an undeployed wallet through `serializeErc6492Signature`: login works, nothing gets deployed, and an intruder's inner signature is 401.
+- OpenAPI and `packages/client` regenerated. Tests: `test/hardening.test.ts` (7: CORS, a 2-instance shared Redis budget, invitation email/list/revoke checked against Mailpit, a failing mailer, auditors, DEK LRU/TTL, legacy migration) plus the 6492 case in `siwe-1271.test.ts`.
+- shortcuts: no production entry point builds the Redis and mailer clients from env yet (`buildServer` takes them injected, as with `pool`); the invitation email is plain text; `migrateLegacySecrets` is a function, not a CLI.
+- Next: P2-16 (`tools/scripts/decrypt-agent.ts`).
 
 ### 2026-11-04: P2-15 mirror mode (dual-write to Postgres)
 - Journal v4: `mirror_queue` (full `PutRequest`; bigint attrs tagged in JSON). `enqueueMirror`, `dueMirrors`, `deleteMirror`, `retryMirror`, `mirrorSize`.
@@ -37,7 +49,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 - OpenAPI 3.1 → `packages/client/openapi.json` (drift test in `apps/api/test/openapi.test.ts`, regenerate with `AFR_UPDATE_OPENAPI=1`) → `src/schema.ts` (`pnpm --filter @afr/client generate`, drift test) → `createAfrClient` (openapi-fetch, CSRF header on mutations).
 - Fixed in passing: three routes sent their response before COMMIT (invitation, recorder key, watched address); all now reply after the transaction.
 - Tests: 16 API (+ RLS isolation without WHERE and RLS-refused cross-org insert, members, invitations, PATCH, watched addresses, read cursors, rate limits, headers), ERC-1271 on anvil (`AFR_ANVIL_URL`, mock wallet in `apps/api/test/fixtures`, contracts/ untouched), KMS on LocalStack (`AFR_KMS_ENDPOINT`), 3 client. Root `test` now runs `--concurrency=50%` like build/typecheck: the full suite oversubscribed 4 cores and unrelated tests timed out. `pnpm verify` green with all three env vars.
-- shortcuts: in-memory rate-limit counters (per instance; Redis store when the API scales out); DEK cache never evicts; no invitation list/revoke routes or email delivery; auditors see every agent (no assignment table yet); privacy/retention changes still need the signed-profile flow; `users` has no RLS (not tenant data); no CORS plugin (dashboard is same-origin for now); no ERC-6492 counterfactual test (viem handles it; needs a factory fixture); data sealed under the old single master key (only test DBs) can't be opened.
+- shortcuts (all but the privacy/retention and `users` items closed by part 2 above): in-memory rate-limit counters (per instance; Redis store when the API scales out); DEK cache never evicts; no invitation list/revoke routes or email delivery; auditors see every agent (no assignment table yet); privacy/retention changes still need the signed-profile flow; `users` has no RLS (not tenant data); no CORS plugin (dashboard is same-origin for now); no ERC-6492 counterfactual test (viem handles it; needs a factory fixture); data sealed under the old single master key (only test DBs) can't be opened.
 - Next: P2-15 (mirror mode), done below.
 
 ### 2026-11-04: P2-14 recorder outbox → API

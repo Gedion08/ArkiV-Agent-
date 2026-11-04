@@ -7,6 +7,7 @@ import { z } from "zod";
 import { newRecorderKey } from "../auth/recorder.js";
 import { inOrg, type Q } from "../db/tenancy.js";
 import {
+  ADMIN_ROLES,
   ApiError,
   type ApiOptions,
   audit,
@@ -124,6 +125,14 @@ export const agentRoutes: ZodPlugin<
   const auth = { preHandler: o.requireUser };
   const uid = (req: { user?: { id: string } }) => (req.user as { id: string }).id;
 
+  const assigned = async (q: Q, agentId: string, userId: string) =>
+    !!(
+      await q.query("SELECT 1 FROM agent_auditors WHERE agent_id = $1 AND user_id = $2", [
+        agentId,
+        userId,
+      ])
+    ).rowCount;
+
   /** Resolves the agent's org (system lookup), then runs `fn` scoped to it after the role check. */
   const withAgent = async <T>(
     agentId: string,
@@ -136,9 +145,10 @@ export const agentRoutes: ZodPlugin<
     ).rows[0]?.org_id;
     if (!org) throw new ApiError(404, "NOT_FOUND");
     return inOrg(pool, org, async (q) => {
-      await requireRole(q, org, userId, roles);
+      const role = await requireRole(q, org, userId, roles);
       const a = (await q.query<AgentRow>("SELECT * FROM agents WHERE id = $1", [agentId])).rows[0];
-      if (!a) throw new ApiError(404, "NOT_FOUND");
+      if (!a || (role === "auditor" && !(await assigned(q, agentId, userId))))
+        throw new ApiError(404, "NOT_FOUND");
       return fn(q, a);
     });
   };
@@ -151,10 +161,13 @@ export const agentRoutes: ZodPlugin<
     },
     async (req) =>
       inOrg(pool, req.params.org, async (q) => {
-        await requireRole(q, req.params.org, uid(req));
+        const role = await requireRole(q, req.params.org, uid(req));
         const { rows } = await q.query<AgentRow>(
-          "SELECT * FROM agents WHERE org_id = $1 ORDER BY created_at",
-          [req.params.org],
+          role === "auditor"
+            ? `SELECT a.* FROM agents a JOIN agent_auditors x ON x.agent_id = a.id
+               WHERE a.org_id = $1 AND x.user_id = $2 ORDER BY a.created_at`
+            : "SELECT * FROM agents WHERE org_id = $1 ORDER BY created_at",
+          role === "auditor" ? [req.params.org, uid(req)] : [req.params.org],
         );
         return { agents: rows.map(agentJson) };
       }),
@@ -397,6 +410,81 @@ export const agentRoutes: ZodPlugin<
   );
 
   // ── read views (public data, verifiable against Arkiv) ──
+  // ── auditor assignments (§2): owner/admin assign members whose role is auditor ──
+  const Auditor = z.strictObject({ user_id: z.uuid(), wallet: AddrOut, added_at: Iso });
+  app.get(
+    "/v1/agents/:id/auditors",
+    {
+      ...auth,
+      schema: {
+        params: AgentParam,
+        response: { 200: z.strictObject({ auditors: z.array(Auditor) }) },
+      },
+    },
+    async (req) =>
+      withAgent(req.params.id, uid(req), ADMIN_ROLES, async (q, a) => {
+        const { rows } = await q.query<{ user_id: string; wallet: Buffer; added_at: Date }>(
+          `SELECT x.user_id, u.wallet, x.added_at FROM agent_auditors x JOIN users u ON u.id = x.user_id
+           WHERE x.agent_id = $1 ORDER BY x.added_at`,
+          [a.id],
+        );
+        return {
+          auditors: rows.map((r) => ({
+            user_id: r.user_id,
+            wallet: bufHex(r.wallet) as Hex,
+            added_at: r.added_at.toISOString(),
+          })),
+        };
+      }),
+  );
+
+  app.post(
+    "/v1/agents/:id/auditors",
+    {
+      ...auth,
+      schema: {
+        params: AgentParam,
+        body: z.strictObject({ user_id: z.uuid() }),
+        response: { 200: Ok },
+      },
+    },
+    async (req) =>
+      withAgent(req.params.id, uid(req), ADMIN_ROLES, async (q, a) => {
+        const role = (
+          await q.query<{ role: string }>(
+            "SELECT role FROM memberships WHERE org_id = $1 AND user_id = $2",
+            [a.org_id, req.body.user_id],
+          )
+        ).rows[0]?.role;
+        if (role !== "auditor") throw new ApiError(409, "NOT_AN_AUDITOR");
+        await q.query(
+          `INSERT INTO agent_auditors (org_id, agent_id, user_id, added_by) VALUES ($1, $2, $3, $4)
+           ON CONFLICT DO NOTHING`,
+          [a.org_id, a.id, req.body.user_id, uid(req)],
+        );
+        await audit(q, req, a.org_id, "auditor.assign", `${a.id}:${req.body.user_id}`);
+        return { ok: true as const };
+      }),
+  );
+
+  app.delete(
+    "/v1/agents/:id/auditors/:userId",
+    {
+      ...auth,
+      schema: { params: AgentParam.extend({ userId: z.uuid() }), response: { 200: Ok } },
+    },
+    async (req) =>
+      withAgent(req.params.id, uid(req), ADMIN_ROLES, async (q, a) => {
+        const r = await q.query("DELETE FROM agent_auditors WHERE agent_id = $1 AND user_id = $2", [
+          a.id,
+          req.params.userId,
+        ]);
+        if (!r.rowCount) throw new ApiError(404, "NOT_FOUND");
+        await audit(q, req, a.org_id, "auditor.unassign", `${a.id}:${req.params.userId}`);
+        return { ok: true as const };
+      }),
+  );
+
   app.get(
     "/v1/agents/:id/lanes",
     {

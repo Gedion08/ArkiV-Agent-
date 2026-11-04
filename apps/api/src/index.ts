@@ -5,6 +5,7 @@ export * from "./auth/recorder.js";
 export * from "./db/migrations.js";
 export * from "./db/tenancy.js";
 export * from "./http.js";
+export * from "./mail.js";
 export * from "./openapi.js";
 export * from "./secrets.js";
 export * from "./server.js";

@@ -2,9 +2,14 @@
 pragma solidity 0.8.30;
 
 /// Test-only ERC-1271 wallet: valid iff the owner EOA (storage slot 0) signed the hash.
-/// Placed on anvil with anvil_setCode + anvil_setStorageAt (runtime bytecode in mock-wallet.ts).
+/// Placed on anvil with anvil_setCode + anvil_setStorageAt (runtime bytecode in mock-wallet.ts), or
+/// counterfactually through MockWalletFactory (ERC-6492).
 contract MockWallet {
     address owner;
+
+    constructor(address o) {
+        owner = o;
+    }
 
     function isValidSignature(bytes32 hash, bytes calldata sig) external view returns (bytes4) {
         if (sig.length != 65) return 0xffffffff;
@@ -13,5 +18,12 @@ contract MockWallet {
         uint8 v = uint8(sig[64]);
         address signer = ecrecover(hash, v, r, s);
         return signer != address(0) && signer == owner ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+    }
+}
+
+/// Test-only CREATE2 factory, so a wallet can sign before it's deployed (ERC-6492).
+contract MockWalletFactory {
+    function deploy(address owner, bytes32 salt) external returns (address) {
+        return address(new MockWallet{salt: salt}(owner));
     }
 }

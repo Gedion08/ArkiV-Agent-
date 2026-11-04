@@ -52,20 +52,42 @@ export function localKeyWrapper(masterKey: Uint8Array): KeyWrapper {
   };
 }
 
+export interface DekCacheOptions {
+  /** Most unwrapped DEKs held at once (LRU beyond it). Default 1000. */
+  maxCached?: number;
+  /** An unwrapped DEK is re-fetched from the KEK after this long. Default 15 min. */
+  ttlMs?: number;
+  now?: () => number;
+}
+
 export class OrgSecrets {
   readonly #pool: Pool;
   readonly #kek: KeyWrapper;
-  // shortcut: unwrapped DEKs cached for the process lifetime, add an LRU + TTL when orgs number in the 10k+
-  readonly #deks = new Map<string, Uint8Array>();
+  /** Map order is LRU order (oldest first); evicted keys are zeroed. */
+  readonly #deks = new Map<string, { dek: Uint8Array; at: number }>();
+  readonly #max: number;
+  readonly #ttl: number;
+  readonly #now: () => number;
 
-  constructor(pool: Pool, kek: KeyWrapper) {
+  constructor(pool: Pool, kek: KeyWrapper, o: DekCacheOptions = {}) {
     this.#pool = pool;
     this.#kek = kek;
+    this.#max = o.maxCached ?? 1000;
+    this.#ttl = o.ttlMs ?? 15 * 60_000;
+    this.#now = o.now ?? Date.now;
   }
 
   async #dek(orgId: string): Promise<Uint8Array> {
-    const cached = this.#deks.get(orgId);
-    if (cached) return cached;
+    const now = this.#now();
+    const hit = this.#deks.get(orgId);
+    if (hit) {
+      this.#deks.delete(orgId);
+      if (now - hit.at < this.#ttl) {
+        this.#deks.set(orgId, hit);
+        return hit.dek;
+      }
+      hit.dek.fill(0);
+    }
     const read = async () =>
       (
         await this.#pool.query<{ dek_wrapped: Buffer | null }>(
@@ -89,7 +111,12 @@ export class OrgSecrets {
       if (!wrapped) throw new Error("ORG_MISSING");
     }
     const dek = await this.#kek.unwrapDataKey(wrapped, orgId);
-    this.#deks.set(orgId, dek);
+    this.#deks.set(orgId, { dek, at: now });
+    for (const [k, v] of this.#deks) {
+      if (this.#deks.size <= this.#max) break;
+      this.#deks.delete(k);
+      v.dek.fill(0);
+    }
     return dek;
   }
 
@@ -103,4 +130,53 @@ export class OrgSecrets {
     if (sealed[0] !== SEALED_V1) throw new Error("SEALED_VERSION");
     return aesGcmOpen(await this.#dek(orgId), sealed.subarray(1, 13), sealed.subarray(13), aad);
   }
+}
+
+/**
+ * One-off: re-seals secrets written under the pre-v2 single master key (iv ‖ AES-GCM(master), no version
+ * byte) into the per-org format. Idempotent; a row changed meanwhile is left alone.
+ */
+export async function migrateLegacySecrets(o: {
+  pool: Pool;
+  secrets: OrgSecrets;
+  legacyMasterKey: Uint8Array;
+}): Promise<{ migrated: number; current: number; failed: number }> {
+  const n = { migrated: 0, current: 0, failed: 0 };
+  const tables = [
+    {
+      select: `SELECT w.agent_id AS id, a.org_id, w.kms_ciphertext AS ct, a.agent_key AS aad
+               FROM watch_keys w JOIN agents a ON a.id = w.agent_id`,
+      update:
+        "UPDATE watch_keys SET kms_ciphertext = $3 WHERE agent_id = $1 AND kms_ciphertext = $2",
+      key: (r: Row) => [r.id],
+    },
+    {
+      select: `SELECT s.agent_id AS id, s.address AS addr, a.org_id, s.presigned_revocation_kms AS ct, s.address AS aad
+               FROM session_keys s JOIN agents a ON a.id = s.agent_id WHERE s.presigned_revocation_kms IS NOT NULL`,
+      update: `UPDATE session_keys SET presigned_revocation_kms = $4
+               WHERE agent_id = $1 AND address = $2 AND presigned_revocation_kms = $3`,
+      key: (r: Row) => [r.id, r.addr],
+    },
+  ];
+  type Row = { id: string; addr?: Buffer; org_id: string; ct: Buffer; aad: Buffer };
+  for (const t of tables) {
+    const { rows } = await o.pool.query<Row>(t.select);
+    for (const r of rows) {
+      try {
+        await o.secrets.open(r.org_id, r.ct, r.aad);
+        n.current++;
+        continue;
+      } catch {}
+      try {
+        const plain = aesGcmOpen(o.legacyMasterKey, r.ct.subarray(0, 12), r.ct.subarray(12), r.aad);
+        const sealed = await o.secrets.seal(r.org_id, plain, r.aad);
+        plain.fill(0);
+        const u = await o.pool.query(t.update, [...t.key(r), r.ct, sealed]);
+        if (u.rowCount) n.migrated++;
+      } catch {
+        n.failed++;
+      }
+    }
+  }
+  return n;
 }

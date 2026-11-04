@@ -17,6 +17,8 @@ describe("OpenAPI", () => {
       expect.arrayContaining([
         "/v1/orgs/{org}/members",
         "/v1/invitations/accept",
+        "/v1/orgs/{org}/invitations/{id}",
+        "/v1/agents/{id}/auditors/{userId}",
         "/v1/agents/{id}/watched-addresses",
         "/v1/agents/{id}/batches",
         "/v1/recorder/checkpoints",

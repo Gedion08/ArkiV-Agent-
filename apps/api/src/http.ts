@@ -3,9 +3,11 @@ import { createHash } from "node:crypto";
 import type { Logger } from "@afr/log";
 import type { FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
+import type { Redis } from "ioredis";
 import type { Pool } from "pg";
 import type { Client } from "viem";
 import type { Q } from "./db/tenancy.js";
+import type { Mailer } from "./mail.js";
 import type { KeyWrapper } from "./secrets.js";
 
 export interface ApiOptions {
@@ -16,6 +18,12 @@ export interface ApiOptions {
   keys: KeyWrapper;
   /** Public client for ERC-1271 / ERC-6492 wallet logins on its chain; without it only EOAs can sign in. */
   siweClient?: Client;
+  /** The dashboard's origin (https://app.example): the only CORS origin (§8), and the base of invitation links. */
+  dashboardOrigin?: string;
+  /** Shared rate-limit counters (§7) across API instances; without it each instance counts alone (dev). */
+  redis?: Redis;
+  /** Invitation emails; without it the inviter passes the token on. */
+  mailer?: Mailer;
   /** ms clock (tests). */
   now?: () => number;
   /** 5xx are logged by code and route only (never request content). */

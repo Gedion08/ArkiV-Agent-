@@ -78,6 +78,12 @@ const MIGRATIONS: string[] = [
        EXECUTE format('CREATE POLICY tenant ON %I TO afr_app USING (agent_id IN (SELECT id FROM agents WHERE org_id = afr_org())) WITH CHECK (agent_id IN (SELECT id FROM agents WHERE org_id = afr_org()))', t);
      END LOOP;
    END $$;`,
+  // v3: auditors see only the agents they're assigned (§2)
+  `CREATE TABLE agent_auditors (org_id uuid NOT NULL REFERENCES orgs, agent_id uuid NOT NULL REFERENCES agents,
+     user_id uuid NOT NULL REFERENCES users, added_by uuid, added_at timestamptz NOT NULL DEFAULT now(),
+     PRIMARY KEY (agent_id, user_id));
+   ALTER TABLE agent_auditors ENABLE ROW LEVEL SECURITY;
+   CREATE POLICY tenant ON agent_auditors TO afr_app USING (org_id = afr_org()) WITH CHECK (org_id = afr_org());`,
 ];
 
 /** Applies pending migrations, one transaction each; an advisory lock keeps concurrent starts serial. */

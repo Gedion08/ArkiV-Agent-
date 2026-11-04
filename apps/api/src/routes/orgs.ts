@@ -24,6 +24,14 @@ const Org = z.strictObject({ id: z.uuid(), name: z.string(), plan: z.string(), r
 const OrgDetail = Org.extend({ region: z.string() });
 const Member = z.strictObject({ user_id: z.uuid(), wallet: AddrOut, role: Role });
 const Name = z.string().min(1).max(200);
+const Invitation = z.strictObject({
+  id: z.uuid(),
+  role: Role,
+  wallet: AddrOut.nullable(),
+  email: z.string().nullable(),
+  created_by: z.uuid().nullable(),
+  expires_at: z.string(),
+});
 
 export const orgRoutes: ZodPlugin<
   ApiOptions & { now: () => number; requireUser: RequireUser }
@@ -117,7 +125,8 @@ export const orgRoutes: ZodPlugin<
     },
     async (req) =>
       inOrg(pool, req.params.org, async (q) => {
-        await requireRole(q, req.params.org, uid(req));
+        // auditors see only their assigned agents, not who else is in the org
+        await requireRole(q, req.params.org, uid(req), ["owner", "admin", "engineer", "viewer"]);
         const { rows } = await q.query<{ user_id: string; wallet: Buffer; role: string }>(
           `SELECT m.user_id, u.wallet, m.role FROM memberships m JOIN users u ON u.id = m.user_id
            WHERE m.org_id = $1 ORDER BY m.role, u.wallet`,
@@ -167,6 +176,11 @@ export const orgRoutes: ZodPlugin<
            ON CONFLICT (org_id, user_id) DO UPDATE SET role = excluded.role`,
           [org, userId, role],
         );
+        if (role !== "auditor")
+          await q.query("DELETE FROM agent_auditors WHERE org_id = $1 AND user_id = $2", [
+            org,
+            userId,
+          ]);
         await audit(q, req, org, prev ? "member.role" : "member.add", userId);
         return { user_id: userId, wallet, role };
       }),
@@ -198,6 +212,10 @@ export const orgRoutes: ZodPlugin<
           if ((await ownerCount(q, org)) <= 1) throw new ApiError(409, "LAST_OWNER");
         }
         await q.query("DELETE FROM memberships WHERE org_id = $1 AND user_id = $2", [org, userId]);
+        await q.query("DELETE FROM agent_auditors WHERE org_id = $1 AND user_id = $2", [
+          org,
+          userId,
+        ]);
         await audit(q, req, org, "member.remove", userId);
         return { ok: true as const };
       }),
@@ -217,7 +235,12 @@ export const orgRoutes: ZodPlugin<
           email: z.email().max(320).optional(),
         }),
         response: {
-          201: z.strictObject({ id: z.uuid(), token: z.string(), expires_at: z.string() }),
+          201: z.strictObject({
+            id: z.uuid(),
+            token: z.string(),
+            expires_at: z.string(),
+            email_sent: z.boolean(),
+          }),
         },
       },
     },
@@ -245,9 +268,78 @@ export const orgRoutes: ZodPlugin<
         await audit(q, req, org, "invitation.create", id);
         return id;
       });
-      // shortcut: the token is returned to the inviter to pass on; email delivery comes with the notifier (§5)
-      return reply.status(201).send({ id, token, expires_at: expires.toISOString() });
+      // after commit: a failed send leaves a valid invitation whose token the inviter can still pass on
+      let email_sent = false;
+      if (req.body.email && o.mailer && o.dashboardOrigin) {
+        try {
+          await o.mailer.send({
+            to: req.body.email,
+            subject: "You're invited to an AFR organization",
+            // the token rides in the fragment, so it never reaches a server log
+            text: `You've been invited as ${req.body.role}. Sign in with your wallet to accept:\n\n${o.dashboardOrigin}/invite#${token}\n\nThe link expires ${expires.toISOString()}.`,
+          });
+          email_sent = true;
+        } catch (e) {
+          o.logger?.warn(
+            { code: (e as { code?: string }).code ?? "MAIL_ERROR" },
+            "invite email failed",
+          );
+        }
+      }
+      return reply.status(201).send({ id, token, expires_at: expires.toISOString(), email_sent });
     },
+  );
+
+  app.get(
+    "/v1/orgs/:org/invitations",
+    {
+      ...auth,
+      schema: {
+        params: OrgParam,
+        response: { 200: z.strictObject({ invitations: z.array(Invitation) }) },
+      },
+    },
+    async (req) =>
+      inOrg(pool, req.params.org, async (q) => {
+        await requireRole(q, req.params.org, uid(req), ADMIN_ROLES);
+        const { rows } = await q.query<{
+          id: string;
+          role: string;
+          wallet: Buffer | null;
+          email: string | null;
+          created_by: string | null;
+          expires_at: Date;
+        }>(
+          `SELECT id, role, wallet, email, created_by, expires_at FROM invitations
+           WHERE org_id = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $2
+           ORDER BY expires_at`,
+          [req.params.org, new Date(now())],
+        );
+        return {
+          invitations: rows.map((r) => ({
+            ...r,
+            wallet: r.wallet ? bufHex(r.wallet) : null,
+            expires_at: r.expires_at.toISOString(),
+          })) as z.infer<typeof Invitation>[],
+        };
+      }),
+  );
+
+  app.delete(
+    "/v1/orgs/:org/invitations/:id",
+    { ...auth, schema: { params: OrgParam.extend({ id: z.uuid() }), response: { 200: Ok } } },
+    async (req) =>
+      inOrg(pool, req.params.org, async (q) => {
+        const { org, id } = req.params;
+        await requireRole(q, org, uid(req), ADMIN_ROLES);
+        const r = await q.query(
+          "UPDATE invitations SET revoked_at = now() WHERE org_id = $1 AND id = $2 AND accepted_at IS NULL AND revoked_at IS NULL",
+          [org, id],
+        );
+        if (!r.rowCount) throw new ApiError(404, "NOT_FOUND");
+        await audit(q, req, org, "invitation.revoke", id);
+        return { ok: true as const };
+      }),
   );
 
   app.post(

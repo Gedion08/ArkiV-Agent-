@@ -2,6 +2,7 @@
 // watched addresses, read views) and the recorder endpoints (§4.1–§4.4). No plaintext ever: strict schemas
 // reject unknown fields (§1, §8). Zod schemas validate, serialize and generate OpenAPI (§1).
 import cookie from "@fastify/cookie";
+import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import swagger from "@fastify/swagger";
@@ -37,8 +38,17 @@ export async function buildServer(o: ApiOptions): Promise<FastifyInstance> {
 
   await app.register(cookie);
   await app.register(helmet); // §8 security headers
-  // §7; shortcut: in-memory counters are per instance, move to the Redis store when the API runs > 1 task
-  await app.register(rateLimit, { global: true, ...LIMITS.session });
+  // §8: the dashboard origin only, with cookies; without one, no CORS headers (same-origin only)
+  await app.register(cors, {
+    origin: o.dashboardOrigin ? [o.dashboardOrigin] : false,
+    credentials: true,
+  });
+  await app.register(rateLimit, {
+    global: true,
+    ...LIMITS.session,
+    // §7: counters shared by every instance; a Redis outage skips limiting rather than failing requests
+    ...(o.redis ? { redis: o.redis, nameSpace: "afr-rl:", skipOnError: true } : {}),
+  });
   await app.register(swagger, {
     openapi: {
       openapi: "3.1.0",
