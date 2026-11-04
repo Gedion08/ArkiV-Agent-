@@ -14,8 +14,9 @@
     "@afr/api": "workspace:*",
     "@afr/core": "workspace:*",
     "@afr/store": "workspace:*",
-    "pg": "8.23.1",
+    "@aws-sdk/client-kms": "3.1161.0",
     "@types/pg": "8.23.1",
+    "pg": "8.23.1",
     "viem": "2.57.7"
   }
 }

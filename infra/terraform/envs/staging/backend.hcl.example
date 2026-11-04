@@ -1,0 +1,7 @@
+# Copy to backend.hcl (gitignored values are fine here; nothing secret) and run
+#   terraform -chdir=infra/terraform/envs/staging init -backend-config=backend.hcl
+bucket         = "afr-tfstate-staging"
+key            = "staging/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "afr-tfstate-lock"
+encrypt        = true

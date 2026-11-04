@@ -1,10 +1,13 @@
 // Anchor service entry point (L5 §3): one leader (pg advisory lock, §3.3) ticks every 30 s (§3.2).
 //
-//   node dist/main.js    env: AFR_PG_URL, AFR_ANCHOR_KEY, AFR_ANCHOR_RPC_URL, ARKIV_ACCESS_KEY,
-//                        AFR_ARKIV_WRITER_KEY; optional AFR_ANCHOR_CHAIN_ID (84532), AFR_ANCHOR_ARKIV_CAP_WEI
+//   node dist/main.js    env: AFR_PG_URL, AFR_ANCHOR_KMS_KEY_ID (or AFR_ANCHOR_KEY for local dev),
+//                        AFR_ANCHOR_RPC_URL, ARKIV_ACCESS_KEY, AFR_ARKIV_WRITER_KEY; optional
+//                        AFR_ANCHOR_CHAIN_ID (84532), AFR_ANCHOR_ARKIV_CAP_WEI
+
 import { AfrError, ANCHOR_CONTRACTS, CHAINS } from "@afr/core";
 import { createLogger, type Logger } from "@afr/log";
 import { createArkivStore } from "@afr/store";
+import { KMSClient } from "@aws-sdk/client-kms";
 import pg from "pg";
 import { createPublicClient, type Hex, http, type PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -12,6 +15,7 @@ import { base, baseSepolia } from "viem/chains";
 import { AnchorChain, type AnchorSigner, RECORDER_ANCHOR_ABI } from "./chain.js";
 import { PgAnchorDb } from "./db.js";
 import { PgWriteJournal } from "./journal.js";
+import { awsKms, kmsAccount } from "./kms.js";
 import { AnchorService } from "./service.js";
 
 /** pg advisory lock key held by the one anchor leader. */
@@ -89,8 +93,10 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
   const chain = CHAINS_BY_ID[chainId];
   const contract = ANCHOR_CONTRACTS[chainId]?.at(-1)?.address;
   if (!chain || !contract) throw new AfrError("CONFIG", `no RecorderAnchor on chain ${chainId}`);
-  // shortcut: a local key; the KMS account (L5 §3.3) replaces it in P3-12
-  const signer = privateKeyToAccount(need(env, "AFR_ANCHOR_KEY") as Hex) as AnchorSigner;
+  // KMS in staging/prod (L5 §3.3; region and endpoint from the standard AWS_* env); a raw key for local dev
+  const signer = env.AFR_ANCHOR_KMS_KEY_ID
+    ? await kmsAccount(awsKms(new KMSClient({}), env.AFR_ANCHOR_KMS_KEY_ID))
+    : (privateKeyToAccount(need(env, "AFR_ANCHOR_KEY") as Hex) as AnchorSigner);
   const publicClient = createPublicClient({
     chain,
     transport: http(need(env, "AFR_ANCHOR_RPC_URL"), { retryCount: 3 }),

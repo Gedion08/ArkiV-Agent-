@@ -205,6 +205,9 @@ importers:
       '@afr/store':
         specifier: workspace:*
         version: link:../../packages/store
+      '@aws-sdk/client-kms':
+        specifier: 3.1161.0
+        version: 3.1161.0
       pg:
         specifier: 8.23.1
         version: 8.23.1
@@ -543,6 +546,9 @@ importers:
       '@afr/store':
         specifier: workspace:*
         version: link:../../packages/store
+      '@aws-sdk/client-kms':
+        specifier: 3.1161.0
+        version: 3.1161.0
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1

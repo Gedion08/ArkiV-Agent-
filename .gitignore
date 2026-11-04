@@ -16,3 +16,11 @@ contracts/broadcast/
 *.afrkey
 /records.json
 /.afr-demo/
+
+# Terraform: local state, plans and per-operator backend config
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+infra/terraform/envs/*/backend.hcl

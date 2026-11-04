@@ -47,12 +47,16 @@ export async function startAnvil(): Promise<{ url: string; pc: PublicClient; sto
   return { url, pc, stop: () => proc.kill() };
 }
 
-export async function deployAnchor(url: string, pc: PublicClient): Promise<Hex> {
+export async function deployAnchor(
+  url: string,
+  pc: PublicClient,
+  recorders: Hex[] = [ANCHOR_KEY.address],
+): Promise<Hex> {
   const w = createWalletClient({ account: ADMIN, chain: foundry, transport: http(url) });
   const hash = await w.deployContract({
     abi: parseAbi(["constructor(address admin_, address[] recorders)"]),
     bytecode: RECORDER_ANCHOR_BYTECODE,
-    args: [ADMIN.address, [ANCHOR_KEY.address]],
+    args: [ADMIN.address, recorders],
   });
   const r = await pc.waitForTransactionReceipt({ hash });
   return r.contractAddress as Hex;

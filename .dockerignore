@@ -1,0 +1,17 @@
+# Secrets and local state never enter a build context (L11 §4).
+.env
+.env.*
+*.afrkey
+*.sqlite
+*.sqlite-*
+.afr-demo/
+records.json
+# rebuilt inside the image
+**/node_modules
+**/dist
+**/.turbo
+**/coverage
+contracts/out
+contracts/cache
+contracts/broadcast
+.git

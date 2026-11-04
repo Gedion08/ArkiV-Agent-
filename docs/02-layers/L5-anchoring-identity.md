@@ -140,6 +140,11 @@ every 30 s:
 - viem custom account: `signTransaction` → serialise → `KMS.Sign(MessageType=DIGEST, SigningAlgorithm=ECDSA_SHA_256)` on keccak digest → parse DER → normalise `s` (low-s) → recover `v` by trying both recovery IDs against the known address.
 - IAM: only the anchor task role may call `kms:Sign` on that key. CloudTrail alerts on any other principal.
 - Nonce: single-instance service (leader lock via `pg_advisory_lock`). Nonce comes from the DB, reconciled against `getTransactionCount(pending)` on start.
+- Implementation (P3-12): `kmsAccount(awsKms(client, keyId))` in `apps/anchor/src/kms.ts`.
+  - `GetPublicKey` must report `ECC_SECG_P256K1`/`SIGN_VERIFY`, otherwise `KMS_KEY_SPEC`. The address comes from the SPKI point.
+  - The DER parser is strict: exact lengths and `0 < r, s < n`. High `s` is mirrored to the low half.
+  - `v` is whichever parity recovers the address, otherwise `KMS_RECOVER`.
+  - The service uses KMS when `AFR_ANCHOR_KMS_KEY_ID` is set (region and endpoint from the standard `AWS_*` env); `AFR_ANCHOR_KEY` remains for local dev.
 
 ### 3.4 Database (shared Postgres, API schema, migration v4)
 

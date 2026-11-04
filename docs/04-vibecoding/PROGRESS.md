@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓, P3-10 ✓, P3-11 ✓ (demo agent `eip155:84532:0x8004a818…bd9e:10588` carries the `afr` service) | Next: P3-12 (staging infra). The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
+| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓, P3-10 ✓, P3-11 ✓ (demo agent `eip155:84532:0x8004a818…bd9e:10588` carries the `afr` service) , P3-12 ✓ in code (KMS signer verified on LocalStack + anvil; Terraform not yet planned against AWS) | Next: P3-13 (nightly `testnet-e2e.yml`). Staging apply + KMS key allowlisting need an operator with AWS access. The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -17,6 +17,24 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P3-12 KMS signer + staging Terraform
+- `apps/anchor/src/kms.ts` (L5 §3.3 note): `kmsAccount(awsKms(KMSClient, keyId))` gives a viem account that signs transactions, typed data and messages through KMS `Sign` (DIGEST) with strict DER parsing, low-s and `v` by recovery. `main` uses it when `AFR_ANCHOR_KMS_KEY_ID` is set.
+  - `@aws-sdk/client-kms` 3.1161.0 is now a dependency of `@afr/anchor` and a devDependency of `@afr/e2e`. It was already pinned in `apps/api`, so nothing new comes from npm.
+- Tests:
+  - `apps/anchor/test/kms.test.ts`: a stand-in KMS with real Node SPKI and DER output, half of it high-s. Signatures are byte-identical to a local account. A foreign key, a P-256 key and malformed DER are refused. An anchorRoot signed through KMS is mined on anvil.
+  - `tools/e2e/test/kms-localstack.test.ts`: real LocalStack KMS (`AFR_LOCALSTACK_URL`). An `ECC_SECG_P256K1` key signs three anchorRoots, each mined on anvil from its address; a P-256 key gives `KMS_KEY_SPEC`. This is A4 locally.
+- `infra/terraform` (L11 §2 note; runbook in `infra/terraform/README.md`):
+  - modules `network` (3 AZs plus VPC endpoints), `kms`, `rds` (PG16, encrypted, PITR 14 d, IAM auth, managed master secret) and `ecs-service`;
+  - `envs/staging`: cluster, ALB, api and anchor services, ECR, empty secrets, SNS alerts;
+  - the anchor key policy lets only the anchor task role sign; EventBridge alerts on a foreign Sign or a policy change.
+- `infra/docker/anchor.Dockerfile` and `.dockerignore`, which keeps `.env`, `*.afrkey` and journals out of the build context.
+- Checked locally:
+  - `terraform fmt -check` and `validate` (hashicorp/terraform:1.9.8 in Docker, no backend). The provider lock `.terraform.lock.hcl` is committed.
+  - `docker build` of the anchor image (500 MB, uid 1000, no `.env`/`*.afrkey`). It installs only `@afr/anchor`'s closure, because the recorder's native `better-sqlite3` needs a toolchain.
+  - The image resolves a LocalStack KMS key, then stops at `CONFIG` for the missing RPC URL. A bogus key id fails earlier.
+- Not done: `terraform plan`/`apply` against AWS. A4 on real staging needs an apply, the secrets filled, and the KMS address allowlisted with `setRecorder` and funded.
+- Shortcuts: the API service is defined at desired count 0 (no entrypoint or `/healthz` yet); services use password DB URLs, not RDS IAM tokens; no `cdn`, `observability` or `dns` modules.
 
 ### 2026-11-04: P3-11 `fr agent update-registration`
 - `fr agent update-registration <agentId> --out registration.json [--writer …] [--uri …] [--endpoint …]` (L5 §4.2 note).

@@ -58,6 +58,12 @@ flowchart TB
 - RDS: Multi-AZ, PITR 14 days, encrypted (KMS), IAM auth for services.
 - Terraform modules: `network`, `rds`, `ecs-service`, `kms`, `cdn`, `observability`, `dns`. State in S3 + DynamoDB lock. Envs: `dev`, `staging`, `prod` as separate AWS accounts (AWS Organizations).
 - Regions: `us-east-1` primary (P5). `eu-west-1` for EU control-plane data (P7). Arkiv/Base are global.
+- P3-12: `infra/terraform/modules/{network,kms,rds,ecs-service}` and `envs/staging`. The runbook is `infra/terraform/README.md`, and the anchor image is built from `infra/docker/anchor.Dockerfile`. Staging deviates from the target in three ways:
+  - a single NAT gateway;
+  - RDS is not Multi-AZ;
+  - the API service is defined but scaled to 0 until `apps/api` has an entrypoint.
+
+  The anchor key policy denies `kms:Sign` to every principal except the anchor task role. Admins keep management rights only. EventBridge alerts fire on a foreign `Sign` or any key-policy change.
 
 ---
 
