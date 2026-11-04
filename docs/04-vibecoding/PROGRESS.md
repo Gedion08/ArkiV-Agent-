@@ -8,7 +8,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 |---|---|---|
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
-| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | DoD left: cost model, chaos, attribute plaintext check. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
+| P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
 | P3 Anchor + verify | not started | |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
@@ -17,6 +17,26 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P2 definition of done
+- Conformance is green on memory, Postgres and Rabdi (P2-05, P2-06, P2-08).
+- Cost model (Arch §12.2): measured exit-demo receipts replace the size estimates, all 30 d unless noted:
+
+  | Entity | Size | Gas |
+  |---|---|---|
+  | Batch | ≈ 10 KiB | 688k–731k |
+  | Delegation | 447 B | 247k |
+  | Keygrant | 554 B | 211k |
+  | Agent profile | 555 B, 180 d | 465k |
+
+  The S6 formula predicts the batch within ~10%. Fixed overhead is ≈ 0.0005 tGLM per agent-month at 1 gwei before batches.
+- Chaos (`packages/recorder/test/chaos.test.ts`, seeds 1/7/42):
+  - 1–3 random 429/timeout/lost_response/revert failures per round, over 12 rounds, hitting delegation, profile, keygrant (real HPKE reader) and batches, plus a crash mid-submit.
+  - Results: one entity per batch position, per session key and per (epoch, reader), and exactly one profile. The batches tile [0, last session_end] once the next process runs.
+  - Canaries in meta, args and result are absent from every attribute and payload of every schema.
+- Plaintext check on Rabdi: `exit-demo.ts` puts a fresh canary in every record, then reads back every entity of the agent. Second run: 3 batches verified, 7 entities scanned, 0 leaks. It also reconciled the write the first run left `submitting`, without a resend.
+- Finding (not a bug, but it costs a round trip): `Recorder.close()` gives uploads 5 s, so its `session_end` batch, or one meeting a leftover failure, often waits for the next start. It's never lost and the next process uploads it. A configurable close drain timeout would settle it in one run (L2 §7 shutdown).
+- Next: P3 (anchor + verify).
 
 ### 2026-11-04: P2-07 part 2 (HPKE keygrants, .afrkey) + P2-16 decrypt-agent
 - Deps (approved): `@hpke/core` 1.9.0, `@hpke/dhkem-x25519` 1.8.0 in `@afr/crypto`, exact pins.

@@ -39,10 +39,10 @@
 
 ## Definition of done
 
-- [ ] Conformance suite green on memory, Postgres and Rabdi.
-- [ ] A cost measurement (S6) recorded with real numbers, and the cost model in Arch §12.2 updated.
-- [ ] Chaos: Arkiv 429/timeout/lost response injected → zero duplicate entities, zero lost batches.
-- [ ] No plaintext in any Arkiv attribute (automated check over all created entities in the e2e run).
+- [x] Conformance suite green on memory, Postgres and Rabdi (P2-05, P2-06, P2-08).
+- [x] A cost measurement (S6) recorded with real numbers, and the cost model in Arch §12.2 updated (exit-demo receipts per entity type).
+- [x] Chaos: Arkiv 429/timeout/lost response injected → zero duplicate entities, zero lost batches (`packages/recorder/test/chaos.test.ts`, 3 seeds, + revert and a crash).
+- [x] No plaintext in any Arkiv attribute (automated check over all created entities in the e2e run: `tools/scripts/exit-demo.ts` canary read-back on Rabdi, and the chaos test over every schema).
 
 ## Vibecoding script
 

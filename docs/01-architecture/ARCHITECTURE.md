@@ -462,10 +462,12 @@ cost_agent_month = Σ_batches( bytes_batch × retention_blocks × p_byte_block +
                  + checkpoints_month × (bytes_ckpt × retention_blocks × p_byte_block + p_entity)
 ```
 
-Typical sizes (estimates to validate in P2):
-- Header ≈ 600–900 B JSON. Body ≈ 0.5–20 KiB depending on context capture. Compressed ratio ~3–6× for JSON.
+Typical sizes. Measured in the P2 exit demo on Rabdi (2026-11-04, 1 gwei, 2 s blocks):
+- Header ≈ 300–550 B of JCS (session records ≈ 300–550 B, tool calls ≈ 460 B). Body ≈ 0.5–20 KiB depending on context capture. Compressed ratio ~3–6× for JSON (estimate).
 - Public section per record ≈ 32 (hash) + 65 (sig) + 32 (tx commitment, if any) B.
-- A 96 KiB batch ≈ 50–300 records.
+- A 96 KiB batch ≈ 50–300 records (estimate). Small batches pad up to the 8 KiB bucket: a 2–4-record batch is ≈ 9.4–10.3 KiB on the wire.
+- Per-entity gas (30 d unless noted): batch ≈ 10 KiB **688k–731k**, delegation 447 B **247k**, keygrant 554 B **211k**, agent profile 555 B for 180 d **465k**. The S6 formula below predicts ≈ 0.66M for the 10 KiB batch, within ~10%.
+- Fixed overhead per agent: one delegation per session key (≈ 0.25M gas), one keygrant per (epoch, reader) per month (≈ 0.21M each), and a profile per version (≈ 0.47M). At 1 gwei an agent with one reader and one session key a month costs ≈ 0.0005 tGLM/month before batches.
 - **Measured (S6, Rabdi, 1 gwei):** gas ≈ 650 per KiB-day of lifetime plus ≈ 4.0M per 96 KiB create (calldata + base). A 96 KiB batch costs ≈ 4.1M gas (0.0041 tGLM) for 1 d, ≈ 27M (0.027 tGLM) for 1 y and ≈ 164M (0.16 tGLM) for 7 y. A small locked entity costs ≈ 220k gas.
 
 **Levers:** larger batches, compression, context capture mode (`hash_only` / `summary` / `full`), shared anchors, tiered retention (full payload for N years, then only checkpoints + public sections, ADR-014).
