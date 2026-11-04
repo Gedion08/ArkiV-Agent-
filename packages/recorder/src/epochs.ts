@@ -9,6 +9,7 @@ import { type EvidenceStore, type Expiry, encodeCanonical } from "@afr/store";
 import { concat, encodeAbiParameters, type Hex, keccak256 } from "viem";
 import type { Journal } from "./journal.js";
 import type { SessionKey } from "./keys.js";
+import { putOnce } from "./statements.js";
 
 /** L4 §12 `sealKeygrant`: HPKE base mode to the reader's X25519 key (enc 32 B, ct 48 B). */
 export type KeygrantSealer = (
@@ -141,31 +142,17 @@ export async function publishKeygrants(o: PublishGrantsOptions): Promise<void> {
         encHash: keccak256(concat([enc, ct])),
       };
       const sig = await o.session.signStatement("KeyGrant", statement);
-      try {
-        await store.await(
-          await store.put({
-            schema: "afr.keygrant.v1",
-            attrs: { agent_key: agentKey, epoch_id: BigInt(e.epochId), reader, kek_id: kek.kekId },
-            payload: encodeCanonical({ enc, ct, statement, sig }),
-            expiresAt: o.expiresAt,
-            // L4 §5: deletable by the writer for crypto-shredding (§8)
-            readonly: true,
-            lock: false,
-            permissionlessExtension: false,
-            idempotencyKey,
-          }),
-        );
-      } catch (err) {
-        // a previous attempt (crash, lost response) already holds this id: reconcile, never resend
-        const code = (err as { code?: string })?.code;
-        if (code !== "IDEMPOTENCY_CONFLICT" && code !== "LOST_RESPONSE" && code !== "TIMEOUT")
-          throw err;
-        const r = await store.reconcile({ store: store.kind, idempotencyKey });
-        // shortcut: a reverted grant keeps its id and stays stuck; rotate the epoch to recover
-        if (r.state === "reverted" || r.state === "uncertain")
-          throw new AfrError("KEYGRANT_PENDING", `keygrant write ${r.state}`);
-        if (r.state === "not_sent" && code !== "IDEMPOTENCY_CONFLICT") throw err;
-      }
+      await putOnce(store, {
+        schema: "afr.keygrant.v1",
+        attrs: { agent_key: agentKey, epoch_id: BigInt(e.epochId), reader, kek_id: kek.kekId },
+        payload: encodeCanonical({ enc, ct, statement, sig }),
+        expiresAt: o.expiresAt,
+        // L4 §5: deletable by the writer for crypto-shredding (§8)
+        readonly: true,
+        lock: false,
+        permissionlessExtension: false,
+        idempotencyKey,
+      });
       journal.markReaderGranted(e.epochId, reader);
     }
   }

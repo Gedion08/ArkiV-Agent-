@@ -95,6 +95,21 @@ export class KeyManager {
     this.#chainId = identityChainId(opts.agentId);
   }
 
+  /**
+   * operator_env only: an operator-signed statement (e.g. AgentProfile). Other modes return
+   * undefined; the dashboard publishes those statements with the operator wallet (P2-13).
+   */
+  signAsOperator(
+    primaryType: StatementType,
+    message: Record<string, unknown>,
+  ): Promise<{ sig: Hex; signer: Hex }> | undefined {
+    if (this.#o.delegation.mode !== "operator_env") return undefined;
+    const op = privateKeyToAccount(this.#o.operatorKey as Hex);
+    return op
+      .signTypedData(typedData(this.#chainId, primaryType, message) as never)
+      .then((sig) => ({ sig, signer: op.address.toLowerCase() as Hex }));
+  }
+
   /** Creates a fresh in-memory session key and requests its delegation. */
   newSession(): SessionKey {
     const { random, delegation: cfg } = this.#o;

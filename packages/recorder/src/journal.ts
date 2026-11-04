@@ -58,6 +58,9 @@ const MIGRATIONS: string[] = [
      signed BLOB, reason TEXT, updated_at INTEGER NOT NULL);
    ALTER TABLE epochs ADD COLUMN wraps INTEGER NOT NULL DEFAULT 0;
    ALTER TABLE epochs ADD COLUMN granted_json TEXT NOT NULL DEFAULT '[]';`,
+  // v3 (P2-12): who signed each delegation and its published entity (batches wait for it, L2 §9)
+  `ALTER TABLE session_keys ADD COLUMN delegator TEXT;
+   ALTER TABLE session_keys ADD COLUMN delegation_entity TEXT;`,
 ];
 
 export interface SessionKeyRow {
@@ -67,6 +70,8 @@ export interface SessionKeyRow {
   delegationSig: Hex | "";
   notBefore: number;
   notAfter: number;
+  delegator?: Hex;
+  delegationEntity?: Hex;
 }
 
 export interface AppendInput {
@@ -221,10 +226,10 @@ export class Journal {
       : { nextSeq: 0n, prevHash: ZERO_HASH, count: 0 };
   }
 
-  setDelegationSig(address: Hex, sig: Hex): void {
+  setDelegationSig(address: Hex, sig: Hex, delegator: Hex): void {
     this.#db
-      .prepare("UPDATE session_keys SET delegation_sig = ? WHERE address = ?")
-      .run(sig, address);
+      .prepare("UPDATE session_keys SET delegation_sig = ?, delegator = ? WHERE address = ?")
+      .run(sig, delegator, address);
   }
 
   putSessionKey(row: SessionKeyRow): void {
@@ -246,19 +251,41 @@ export class Journal {
   }
 
   sessionKey(address: Hex): SessionKeyRow | undefined {
-    const r = this.#db.prepare("SELECT * FROM session_keys WHERE address = ?").get(address) as
-      | Record<string, string | number>
-      | undefined;
-    return r
-      ? {
-          address: r.address as Hex,
-          sessionId: r.session_id as Hex,
-          delegationJson: r.delegation_json as string,
-          delegationSig: r.delegation_sig as Hex,
-          notBefore: r.not_before as number,
-          notAfter: r.not_after as number,
-        }
-      : undefined;
+    const r = this.#db
+      .prepare("SELECT * FROM session_keys WHERE address = ? COLLATE NOCASE")
+      .get(address) as Record<string, string | number | null> | undefined;
+    return r ? sessionKeyRow(r) : undefined;
+  }
+
+  /** Signed delegations not yet published as `afr.delegation.v1`. */
+  delegationsToPublish(): SessionKeyRow[] {
+    return (
+      this.#db
+        .prepare(
+          "SELECT * FROM session_keys WHERE delegation_sig != '' AND delegator IS NOT NULL AND delegation_entity IS NULL ORDER BY created_at",
+        )
+        .all() as Record<string, string | number | null>[]
+    ).map(sessionKeyRow);
+  }
+
+  markDelegationPublished(address: Hex, entityKey: Hex): void {
+    this.#db
+      .prepare("UPDATE session_keys SET delegation_entity = ? WHERE address = ?")
+      .run(entityKey, address);
+  }
+
+  getMeta(k: string): string | undefined {
+    return (this.#db.prepare("SELECT v FROM meta WHERE k = ?").get(k) as { v: string } | undefined)
+      ?.v;
+  }
+
+  setMeta(entries: Record<string, string>): void {
+    const put = this.#db.prepare(
+      "INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+    );
+    this.#db.transaction(() => {
+      for (const [k, v] of Object.entries(entries)) put.run(k, v);
+    })();
   }
 
   /** One SQLite transaction: the record is either fully journaled or absent. Returns the body's byte size. */
@@ -604,4 +631,17 @@ function migrate(db: Database.Database): void {
       ).run(String(version + 1));
     })();
   }
+}
+
+function sessionKeyRow(r: Record<string, string | number | null>): SessionKeyRow {
+  return {
+    address: r.address as Hex,
+    sessionId: r.session_id as Hex,
+    delegationJson: r.delegation_json as string,
+    delegationSig: r.delegation_sig as Hex,
+    notBefore: r.not_before as number,
+    notAfter: r.not_after as number,
+    ...(r.delegator ? { delegator: r.delegator as Hex } : {}),
+    ...(r.delegation_entity ? { delegationEntity: r.delegation_entity as Hex } : {}),
+  };
 }

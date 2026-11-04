@@ -8,7 +8,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 |---|---|---|
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
-| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps) | Blocked: P2-07 part 2 (HPKE deps). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). Not started: P2-12…P2-16 |
+| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps), P2-12 ✓ | Blocked: P2-07 part 2 (HPKE deps). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). Not started: P2-13…P2-16 |
 | P3 Anchor + verify | not started | |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
@@ -17,6 +17,17 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P2-12 delegations + agent profile before batches
+- `@afr/recorder` `statements.ts`:
+  - `publishDelegations`: every signed, unpublished delegation in the journal becomes `afr.delegation.v1` (readonly, locked, permissionless extension; payload CBOR `{message, sig}`). That includes crashed sessions' delegations.
+  - `publishProfile`: `afr.agent.v1` signed by the operator (`KeyManager.signAsOperator`, operator_env only). It is versioned on a content change and is mutable (not readonly, not locked, 180 d).
+  - `putOnce`: the reconcile-instead-of-resend helper, now shared with keygrants.
+- Uploader gate: every key in a batch's `session_keys` needs a published delegation (L2 §9). Publishing order per flush: delegations, then profile, then keygrants; each kind's failure is logged once and doesn't block the others.
+- Journal v3: `session_keys.delegator`, `session_keys.delegation_entity`; `getMeta`/`setMeta`. `UploadOptions.writers` (default: the store's `writer`).
+- Tests: `test/statements.test.ts` (interactive delegation held back → no entity, batch stays `prepared`; after signing, delegation precedes the batch and its EIP-712 sig verifies; crashed session's delegation published before the batch listing its key; profile sig verifies, version 1 → 2 on reader change, no republish when unchanged). Test harnesses now await `delegationReady()`; R8/crash tests gate the batch so injected failures hit it rather than a statement. Canary widened to every written entity. `pnpm verify` green.
+- shortcuts: no watched-address config yet (profile `watched` is empty, `watchedHash` = keccakJcs([])); pre-v3 journal rows without a `delegator` are never published (dev journals only); a reverted statement write stays stuck under its id.
+- Next: P2-13 (`apps/api` v0).
 
 ### 2026-11-04: P2-06 PostgresStore + ADR-024 batch signer
 - ADR-024 (L1 §5.3/§5.4, L2 §9, L7 annotated): `batch_sig` may be made by any key in `session_keys`. The recorder signs with the latest held record key, otherwise with the current session key, which is then appended to `session_keys` with no record pointing at it. `batch_digest` and test vectors unchanged. `BATCH_UNSIGNABLE` is gone: the batcher seals every unbatched record and `sealBatches` splits at the midpoint. `SealContext.batchSigner` is new (internal).

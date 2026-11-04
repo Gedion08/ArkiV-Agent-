@@ -388,7 +388,8 @@ Redaction runs **before** commitment, so redacted secrets never exist in evidenc
 - **Idempotency:** one store idempotency key per (batch_id, attempt). Only a proven revert (`failed`) bumps the attempt; every uncertain outcome reconciles instead.
 - **Upload:** one writer queue per writer account (L3 §7). Ordering: batch N+1 may be **prepared** while N is in flight, but **submitted** only after N reaches `receipt_confirmed` (nonce ordering and chain-root ordering).
 - **Backpressure:** if pending batches exceed `max_pending_bytes` (default 1 GiB), log a warning and raise the `afr_store_lag_seconds` alert. The agent is never blocked.
-- **Delegations first:** a batch is never submitted before the delegation entity for every session key in it is `verified`.
+- **Delegations first:** a batch is never submitted before the delegation entity for every session key in it is `verified`. Signed delegations are published from the journal (`session_keys.delegation_entity`), so a crashed session's delegation still goes out before the batches that list its key.
+- **Agent profile:** in `operator_env` mode the recorder publishes `afr.agent.v1` (operator-signed `AgentProfile`) before uploads, with `version + 1` whenever privacy, retention, readers or writers change. The journal `meta` table holds `profile_version`/`profile_hash`, persisted before sending so a retry reuses the same idempotency key. Other delegation modes leave the profile to the dashboard (P2-13). Batches are not gated on the profile.
 
 ---
 

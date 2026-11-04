@@ -14,7 +14,7 @@ import {
 import { type Hex, hexToBytes } from "viem";
 import { describe, expect, test } from "vitest";
 import { Recorder, type UploadOptions } from "../src/index.js";
-import { AGENT, env, tmpConfig } from "./fixtures/setup.js";
+import { AGENT, env, ready, tmpConfig } from "./fixtures/setup.js";
 
 const AK = agentKey(AGENT);
 const WRITER = `0x${"a1".repeat(20)}` as Hex;
@@ -24,12 +24,14 @@ function harness(over: Record<string, unknown> = {}, upload: Partial<UploadOptio
   const chain = new MemoryChain();
   const store = new MemoryStore(chain, WRITER, config.agent.privacy_level);
   const start = (s: MemoryStore = store) =>
-    Recorder.start({
-      config,
-      env,
-      autoRotate: false,
-      upload: { store: s, tickMs: 3_600_000, ...upload },
-    });
+    ready(
+      Recorder.start({
+        config,
+        env,
+        autoRotate: false,
+        upload: { store: s, tickMs: 3_600_000, ...upload },
+      }),
+    );
   return { config, chain, store, start };
 }
 
@@ -171,8 +173,11 @@ describe("P2-10 batcher + uploader", () => {
 
   test("R8: lost response / timeout / revert / 429 → one entity per batch, never re-signed", async () => {
     for (const kind of ["lost_response", "timeout", "revert", "429"] as InjectedFailure[]) {
-      const h = harness();
+      const gate = { open: false }; // hold the batch so the failure hits it, not a statement
+      const h = harness({}, { canSubmit: () => gate.open });
       const rec = await h.start();
+      await rec.flush(); // delegation + profile only
+      gate.open = true;
       h.store.failNext(kind);
       await rec.flush(); // the first attempt hits the failure and stops ("waiting")
       await rec.flush(); // reconcile / re-prepare / retry
@@ -188,8 +193,11 @@ describe("P2-10 batcher + uploader", () => {
   });
 
   test("crash while submitting: restart reconciles from the journal, idempotent re-put, no duplicate", async () => {
-    const h = harness();
+    const gate = { open: false };
+    const h = harness({}, { canSubmit: () => gate.open });
     const rec = await h.start();
+    await rec.flush(); // delegation + profile only
+    gate.open = true;
     h.store.failNext("lost_response");
     await rec.flush();
     expect(rec.status().batches).toEqual({ submitting: 1 });
@@ -210,13 +218,15 @@ describe("P2-10 batcher + uploader", () => {
   test("close triggers: record count and age; uploads keep seq order", async () => {
     let now = 1_800_000_000_000;
     const store = new MemoryStore(new MemoryChain(), WRITER);
-    const rec = await Recorder.start({
-      config: tmpConfig({ batch: { max_age_ms: 5_000 } }),
-      env,
-      autoRotate: false,
-      now: () => now,
-      upload: { store, tickMs: 3_600_000 },
-    });
+    const rec = await ready(
+      Recorder.start({
+        config: tmpConfig({ batch: { max_age_ms: 5_000 } }),
+        env,
+        autoRotate: false,
+        now: () => now,
+        upload: { store, tickMs: 3_600_000 },
+      }),
+    );
     await rec.flush(); // session_start
     for (let i = 0; i < LIMITS.MAX_RECORDS_PER_BATCH; i++)
       rec.capture({ type: "note", body: { args: { i } } });
@@ -232,7 +242,7 @@ describe("P2-10 batcher + uploader", () => {
     const seqs = (await stored(store)).map((e) => e.attrs.seq_from);
     expect(seqs).toEqual([...seqs].sort((a, b) => (a < b ? -1 : 1)));
     await rec.close();
-  });
+  }, 20_000); // 1,000 captures + seal; slow under the parallel suite
 
   test("records of a dead session key are batched with the next signable record", async () => {
     const h = harness();
@@ -282,13 +292,15 @@ describe("P2-10 batcher + uploader", () => {
       trace: log,
     } as unknown as Logger;
     const store = new MemoryStore(new MemoryChain(), WRITER, 1);
-    const rec = await Recorder.start({
-      config: tmpConfig({ agent: { id: AGENT, privacy_level: 1 } }),
-      env,
-      autoRotate: false,
-      logger,
-      upload: { store, tickMs: 3_600_000 },
-    });
+    const rec = await ready(
+      Recorder.start({
+        config: tmpConfig({ agent: { id: AGENT, privacy_level: 1 } }),
+        env,
+        autoRotate: false,
+        logger,
+        upload: { store, tickMs: 3_600_000 },
+      }),
+    );
     rec.capture({
       type: "tool_call",
       tool: { server: "s", name: "t" },
@@ -300,11 +312,11 @@ describe("P2-10 batcher + uploader", () => {
     await rec.close();
     const entities = await stored(store);
     expect(entities.length).toBeGreaterThan(0);
+    const all = [...store.chain.rows.values()]; // batches + delegation + agent profile
+    expect(all.map((r) => r.schema)).toContain("afr.delegation.v1");
     canary.assertAbsent(
-      ...entities.map((e) => Buffer.from(e.payload).toString("latin1")),
-      ...entities.map((e) =>
-        JSON.stringify(e.attrs, (_, v) => (typeof v === "bigint" ? `${v}` : v)),
-      ),
+      ...all.map((e) => Buffer.from(e.payload).toString("latin1")),
+      ...all.map((e) => JSON.stringify(e.attrs, (_, v) => (typeof v === "bigint" ? `${v}` : v))),
       ...logged,
     );
     expect(logged.length).toBeGreaterThan(0);

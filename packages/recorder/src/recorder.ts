@@ -28,6 +28,7 @@ import { Journal } from "./journal.js";
 import { KeyManager, type SessionKey, type SignatureRequester } from "./keys.js";
 import { loadJournalKey } from "./keystore.js";
 import { hashBinaryContent, normalizeMeta, normalizeTx, type TxInput } from "./normalize.js";
+import { publishDelegations, publishProfile } from "./statements.js";
 import { Uploader } from "./uploader.js";
 
 export const RECORDER_VERSION = "afr-recorder/0.1.0";
@@ -82,8 +83,10 @@ export interface UploadOptions {
   sealKeygrant?: KeygrantSealer;
   watchKey?: Uint8Array;
   approvalThresholdCents?: bigint;
-  /** Extra submission gate (delegations first, P2-12); the keygrant gate always applies. */
+  /** Extra submission gate; the keygrant and delegation gates (L4 §5, L2 §9) always apply. */
   canSubmit?: (sessionKeys: Hex[]) => boolean | Promise<boolean>;
+  /** Writer accounts declared in the agent profile (default: the store's `writer`, if it has one). */
+  writers?: Hex[];
   /** Timer period for age/heartbeat checks (default 1 s). */
   tickMs?: number;
 }
@@ -125,7 +128,8 @@ export class Recorder {
   #batcher: Batcher | undefined;
   #epochs: EpochManager | undefined;
   #upload: UploadOptions | undefined;
-  #grantErrorLogged = false;
+  /** Statement kinds whose publish failure is already logged (once per outage, not every tick). */
+  readonly #publishFailing = new Set<string>();
   #uploader: Uploader | undefined;
   #tick: NodeJS.Timeout | undefined;
   #flushing: Promise<void> | undefined;
@@ -255,6 +259,8 @@ export class Recorder {
       expiresAt: { days: Math.min(cfg.agent.retention_days, 30) },
       canSubmit: async (pub) =>
         epochs.grantsReady(pub.epoch_id) &&
+        // L2 §9: never before the delegation of every key listed in the batch
+        (pub.session_keys as Hex[]).every((k) => this.journal.sessionKey(k)?.delegationEntity) &&
         (u.canSubmit ? await u.canSubmit(pub.session_keys as Hex[]) : true),
       ...(this.#log ? { logger: this.#log } : {}),
     });
@@ -318,7 +324,7 @@ export class Recorder {
           // a crash between sealing and this count under-counts a few wraps: WRAP_MARGIN covers it
           for (const [id, n] of wraps) this.#epochs?.noteWraps(id, n);
         }
-        await this.#publishGrants();
+        await this.#publishStatements();
         await uploader.drain();
       } catch (e) {
         this.#log?.error(
@@ -332,27 +338,59 @@ export class Recorder {
     return this.#flushing;
   }
 
-  async #publishGrants(): Promise<void> {
+  /** Delegations, keygrants and the agent profile go out before the batches that need them. */
+  async #publishStatements(): Promise<void> {
     const u = this.#upload;
-    if (!u) return;
-    try {
-      await publishKeygrants({
+    if (!u || !this.#epochs) return;
+    const key = agentKey(this.agentId);
+    const expiresAt = { days: Math.min(this.#cfg.agent.retention_days, 30) };
+    const writer = (u.store as { writer?: Hex }).writer;
+    await this.#publish("delegation", () =>
+      publishDelegations({
         journal: this.journal,
         store: u.store,
-        agentKey: agentKey(this.agentId),
+        agentKey: key,
+        lane: this.lane,
+        expiresAt,
+      }),
+    );
+    await this.#publish("profile", () =>
+      publishProfile({
+        journal: this.journal,
+        store: u.store,
+        keys: this.#keys,
+        agentId: this.agentId,
+        agentKey: key,
+        privacy: this.#cfg.agent.privacy_level,
+        retentionDays: this.#cfg.agent.retention_days,
+        readers: (this.#epochs as EpochManager).readers,
+        writers: (u.writers ?? (writer ? [writer] : [])).map((w) => w.toLowerCase() as Hex),
+      }),
+    );
+    await this.#publish("keygrant", () =>
+      publishKeygrants({
+        journal: this.journal,
+        store: u.store,
+        agentKey: key,
         session: this.#session,
         ...(u.sealKeygrant ? { sealKeygrant: u.sealKeygrant } : {}),
-        expiresAt: { days: Math.min(this.#cfg.agent.retention_days, 30) },
-      });
-      this.#grantErrorLogged = false;
+        expiresAt,
+      }),
+    );
+  }
+
+  async #publish(kind: string, fn: () => Promise<void>): Promise<void> {
+    try {
+      await fn();
+      this.#publishFailing.delete(kind);
     } catch (e) {
-      // batches of that epoch wait (gate); log once per outage, not every tick
-      if (!this.#grantErrorLogged)
+      // batches that need it wait (gate)
+      if (!this.#publishFailing.has(kind))
         this.#log?.warn(
-          { code: (e as { code?: string }).code ?? "KEYGRANT_ERROR" },
-          "keygrants not published; uploads wait",
+          { code: (e as { code?: string }).code ?? "STATEMENT_ERROR", kind },
+          "statement not published; uploads that need it wait",
         );
-      this.#grantErrorLogged = true;
+      this.#publishFailing.add(kind);
     }
   }
 
@@ -380,9 +418,9 @@ export class Recorder {
       notAfter: Number(s.delegation.notAfter),
     });
     const persisted = s.delegationSig.then(
-      ({ sig }) => {
+      ({ sig, signer }) => {
         if (this.#closed) return;
-        this.journal.setDelegationSig(s.address, sig);
+        this.journal.setDelegationSig(s.address, sig, signer);
         if (this.#session === s) this.#delegationState = "signed";
       },
       (e: AfrError) => {

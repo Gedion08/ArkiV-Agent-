@@ -10,5 +10,6 @@ export * from "./keystore.js";
 export * from "./normalize.js";
 export * from "./recorder.js";
 export * from "./seal.js";
+export * from "./statements.js";
 export * from "./uploader.js";
 export * from "./verify-journal.js";

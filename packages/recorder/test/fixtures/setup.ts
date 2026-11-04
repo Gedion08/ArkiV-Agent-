@@ -22,3 +22,12 @@ export function tmpConfig(over: Record<string, unknown> = {}): Config {
 }
 
 export const env = { AFR_OPERATOR_KEY: OPERATOR_KEY };
+
+/** Batches upload only after their delegation is published (L2 §9): wait for the signature first. */
+export async function ready<R extends { delegationReady(): Promise<unknown> }>(
+  p: Promise<R>,
+): Promise<R> {
+  const rec = await p;
+  await rec.delegationReady();
+  return rec;
+}

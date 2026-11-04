@@ -7,7 +7,7 @@ import { decodeCanonical, decodeFrame, MemoryChain, MemoryStore } from "@afr/sto
 import { bytesToHex, type Hex, keccak256 } from "viem";
 import { describe, expect, test } from "vitest";
 import { identityChainId, type KeygrantSealer, Recorder } from "../src/index.js";
-import { AGENT, env, tmpConfig } from "./fixtures/setup.js";
+import { AGENT, env, ready, tmpConfig } from "./fixtures/setup.js";
 
 const AK = agentKey(AGENT);
 const WRITER = `0x${"a1".repeat(20)}` as Hex;
@@ -31,14 +31,16 @@ function harness(readers: Hex[] = [], sealKeygrant: KeygrantSealer | null = fake
   const log = (o: unknown) => logged.push(JSON.stringify(o));
   const logger = { warn: log, error: log, info: log, debug: log } as unknown as Logger;
   const start = () =>
-    Recorder.start({
-      config,
-      env,
-      autoRotate: false,
-      now: () => clock.now,
-      logger,
-      upload: { store, tickMs: 3_600_000, ...(sealKeygrant ? { sealKeygrant } : {}) },
-    });
+    ready(
+      Recorder.start({
+        config,
+        env,
+        autoRotate: false,
+        now: () => clock.now,
+        logger,
+        upload: { store, tickMs: 3_600_000, ...(sealKeygrant ? { sealKeygrant } : {}) },
+      }),
+    );
   const schemas = () => [...chain.rows.values()].map((r) => r.schema);
   const batchEpochs = () =>
     [...chain.rows.values()]
@@ -91,8 +93,13 @@ describe("P2-11 epochs + keygrants", () => {
     const rec = await h.start();
     await rec.flush();
     const kinds = h.schemas();
-    expect(kinds.slice(0, 2)).toEqual(["afr.keygrant.v1", "afr.keygrant.v1"]);
-    expect(kinds.indexOf("afr.batch.v1")).toBe(2);
+    expect(kinds).toEqual([
+      "afr.delegation.v1",
+      "afr.agent.v1",
+      "afr.keygrant.v1",
+      "afr.keygrant.v1",
+      "afr.batch.v1",
+    ]);
     const sk = rec.status().sessionKey;
     for (const row of [...h.chain.rows.values()].filter((r) => r.schema === "afr.keygrant.v1")) {
       const g = decodeCanonical(row.payload) as {
@@ -117,7 +124,7 @@ describe("P2-11 epochs + keygrants", () => {
     const rec = await h.start();
     await rec.flush();
     await rec.flush();
-    expect(h.schemas()).toEqual([]);
+    expect(h.schemas()).toEqual(["afr.delegation.v1", "afr.agent.v1"]); // statements, no batch
     expect(rec.status().batches).toEqual({ prepared: 1 });
     expect(h.logged.filter((l) => l.includes("KEYGRANT_UNAVAILABLE"))).toHaveLength(1);
     await rec.close();
