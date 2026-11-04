@@ -1,6 +1,7 @@
 // @afr/core: record format and crypto core (docs/02-layers/L1-record-format-and-crypto.md).
 export const PACKAGE_NAME = "@afr/core";
 
+export * from "./anchors.js";
 export * from "./chain.js";
 export * from "./constants.js";
 export * from "./eip712.js";

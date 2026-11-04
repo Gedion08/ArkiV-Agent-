@@ -14,6 +14,12 @@ remappings = [
 # read-only access to the TS-generated vectors (A1 parity)
 fs_permissions = [{ access = "read", path = "../packages/test-vectors/vectors" }]
 
+[rpc_endpoints]
+base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
+
+[etherscan]
+base_sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 84532 }
+
 [fuzz]
 seed = "0xaf5" # fixed, so `forge snapshot --check` is stable for fuzz tests
 

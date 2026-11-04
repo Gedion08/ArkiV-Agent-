@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓ | P3-03 (Base Sepolia deploy) needs sign-off and a funded deployer key. |
+| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified) | Next: P3-04 (identity). |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -17,6 +17,23 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P3-03 CREATE2 deploy → Base Sepolia
+- `contracts/script/Deploy.s.sol`:
+  - Calls the canonical CREATE2 deployer `0x4e59…956C` directly. Salt `keccak256("afr/RecorderAnchor/v1")`.
+  - Idempotent: if code is already at the predicted address, nothing is sent. Fails early if a role is missing.
+  - Tests in `test/Deploy.t.sol`.
+  - Finding: `always_use_create_2_factory` doesn't route a `new{salt}` made from a helper contract, so the script calls the factory itself.
+- `contracts/README.md` (deploy steps, env). `foundry.toml` gains the `base_sepolia` RPC alias and Etherscan v2 verification (chain 84532).
+- Deployed:
+  - Address: `0x976cf1d60b3dc477c70b9e649005f5a12202d341`.
+  - Tx: `0xea312325811cae1fb3c9a58c38476829b680b191eeec5ab7528c9121b333073e`.
+  - Block 54399317, 718,748 gas, status 1.
+  - Verified on BaseScan (and submitted to Sourcify).
+  - Read back: admin = isRecorder = `0x952d…35aF` (the user's wallet, testnet choice), epoch 0.
+  - The deploy-only key in `.env` pays gas and has no role.
+- `@afr/core` `ANCHOR_CONTRACTS` (`anchors.ts`): `{address, fromBlock, version}` per chain. New public export (P3-03 scope).
+- Before mainnet: the admin should be a Safe, and the recorder the P3-05 anchor-service signer. Different roles give a different CREATE2 address.
 
 ### 2026-11-04: P3-02 `RecorderAnchor.sol` + Foundry suite (A1)
 - `contracts/src/RecorderAnchor.sol`: the L5 §2 normative interface verbatim, formatted with `forge fmt`. Immutable, no receive, admin only edits the allowlist.
