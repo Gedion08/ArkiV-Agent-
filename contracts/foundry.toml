@@ -11,6 +11,16 @@ remappings = [
   "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
   "forge-std/=node_modules/forge-std/src/",
 ]
+# read-only access to the TS-generated vectors (A1 parity)
+fs_permissions = [{ access = "read", path = "../packages/test-vectors/vectors" }]
+
+[fuzz]
+seed = "0xaf5" # fixed, so `forge snapshot --check` is stable for fuzz tests
 
 [fmt]
 line_length = 100
+
+[invariant]
+# the round-trip invariant walks every landed root after each call: O(depth²) per run
+runs = 64
+depth = 64

@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | in progress: P3-01 ✓ | P3-02 (contracts/) and P3-03 (Base Sepolia deploy) need sign-off. |
+| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓ | P3-03 (Base Sepolia deploy) needs sign-off and a funded deployer key. |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -17,6 +17,21 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P3-02 `RecorderAnchor.sol` + Foundry suite (A1)
+- `contracts/src/RecorderAnchor.sol`: the L5 §2 normative interface verbatim, formatted with `forge fmt`. Immutable, no receive, admin only edits the allowlist.
+- `contracts/test/RecorderAnchor.t.sol` (12 tests with Smoke):
+  - Unit: allowlist, NotAdmin/NotRecorder/ZeroRoot/EmptyAnchor/DuplicateRoot (including a rollup reusing a single anchor's root), events, epochs, no ETH.
+  - Vector parity: reads `anchor.json` and checks every TS proof with `verify`. The single-leaf root equals `leafHash`. A forged seq_to fails.
+  - Fuzz: 1–33 random leaves, a commutative-keccak tree built in the test, and `verify` against tampered lane/seq_to/chain_root/epoch.
+  - Invariants: `epoch` equals successful anchors; `rootOf[epochOf[r]] == r` and each root gets one epoch. The handler also replays landed roots.
+  - Gas: steady-state `anchorRoot` ≈ 56.7k execution (77.7k per tx with the 21k intrinsic, since forge runs `isolate = true`). L5 §2 now states the target excludes intrinsic gas.
+- `foundry.toml`:
+  - Read-only `fs_permissions` for the vectors directory.
+  - Fixed fuzz seed, so `forge snapshot --check` is stable.
+  - Invariant runs and depth set to 64/64, since the defaults took more than 5 minutes.
+- `.gas-snapshot` regenerated.
+- Next: P3-03, the CREATE2 deploy script and Base Sepolia deployment. Needs sign-off and a funded deployer key.
 
 ### 2026-11-04: P3-01 anchor tree + `anchor.json`
 - `@afr/core` `merkle.ts` (L1 §6):

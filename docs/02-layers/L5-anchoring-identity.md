@@ -94,7 +94,7 @@ contract RecorderAnchor {
 - **Vector test:** read `packages/test-vectors/vectors/anchor.json` via `vm.readFile`, and assert that `leafHash` and `verify` match the TS-generated root/proofs.
 - Fuzz: random leaves → build the tree in Solidity test helper → verify.
 - Invariant: `epoch` == number of successful anchors. `rootOf[epochOf[r]] == r`.
-- Gas snapshot: `anchorRoot` < 60k gas.
+- Gas snapshot: `anchorRoot` < 60k execution gas in steady state, i.e. excluding the 21k intrinsic cost. Measured: 77.7k per transaction including intrinsic, so ≈ 56.7k execution. The first anchor ever costs ≈ 17k more for the `epoch` slot's 0 → 1 write.
 
 **Deployment:** `forge script script/Deploy.s.sol --rpc-url base_sepolia --broadcast --verify`. Use CREATE2 with a fixed salt for the same address across chains. Record addresses in `packages/core/src/anchors.ts` (`ANCHOR_CONTRACTS[chainId] = [{address, fromBlock, version}]`).
 
