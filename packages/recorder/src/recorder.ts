@@ -238,6 +238,7 @@ export class Recorder {
           ? { approvalThresholdCents: u.approvalThresholdCents }
           : {}),
         signerFor: (a) => this.#signers.get(a.toLowerCase() as Hex),
+        batchSigner: () => this.#session,
         random,
       },
       ...(cfg.batch ? { maxAgeMs: cfg.batch.max_age_ms, targetBytes: cfg.batch.target_bytes } : {}),

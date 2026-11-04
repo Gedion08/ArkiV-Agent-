@@ -61,7 +61,7 @@ verifyAgent(agentId, opts):
       root = batchRoot(pub.records)                             ; != pub.batch_root → MERKLE_MISMATCH (fail)
       for r in pub.records: recover(r.hash, r.sig) == pub.session_keys[r.sk] → RECORD_SIG (fail)
       chain = chainRoot(expectRoot, root, pub.seq_to)            ; != pub.chain_root → CHAIN_ROOT_MISMATCH (fail)
-      signer = recover(batchDigest(pub), pub.batch_sig)          ; ∉ pub.session_keys → BATCH_SIG (fail)
+      signer = recover(batchDigest(pub), pub.batch_sig)          ; ∉ pub.session_keys → BATCH_SIG (fail)   # any listed key (ADR-024)
       for each sk in pub.session_keys: valid delegation covering (agent, lane, scope&1) at anchor-bounded time → DELEGATION_INVALID (fail)
       keccak(ct) == pub.payload_ct_hash                          → CT_HASH (fail)
       [full] KEK = keygrant(reader) → DEK → decrypt               → NO_KEYGRANT (warn: skip full for epoch) / DECRYPT_FAILED (fail)

@@ -38,8 +38,10 @@ export interface SealContext {
   watchKey?: Uint8Array;
   /** L6 has_unapproved_tx threshold; without it no tx counts as high-value. */
   approvalThresholdCents?: bigint;
-  /** Session-key signers this process still holds (the batch is signed by its last record's key). */
+  /** Session-key signers this process still holds. */
   signerFor: (address: Hex) => SyncSigner | undefined;
+  /** ADR-024 fallback: the current session key, used when no record key of the batch is held. */
+  batchSigner: () => { address: Hex; signer: SyncSigner };
   random: (n: number) => Uint8Array;
 }
 
@@ -115,14 +117,19 @@ export function sealOne(records: SealRecord[], prevChainRoot: Hex, ctx: SealCont
   const first = records[0];
   const last = records.at(-1);
   if (!first || !last) throw new AfrError("BATCH_EMPTY", "batches are never empty");
-  const signer = ctx.signerFor(last.sessionKey);
-  if (!signer)
-    throw new AfrError("BATCH_UNSIGNABLE", "the last record's session key is no longer held");
   const seqFrom = first.seq;
   const seqTo = last.seq;
   const root = batchRoot(records.map((r) => ({ seq: r.seq, hash: r.hash })));
   const chain = chainRoot(prevChainRoot, root, seqTo);
   const sessionKeys = [...new Set(records.map((r) => r.sessionKey.toLowerCase() as Hex))];
+  // ADR-024: any listed key may sign; prefer the latest held record key, else list the current one
+  const held = records.findLast((r) => ctx.signerFor(r.sessionKey));
+  let signer = held && ctx.signerFor(held.sessionKey);
+  if (!signer) {
+    const current = ctx.batchSigner();
+    signer = current.signer;
+    sessionKeys.push(current.address.toLowerCase() as Hex);
+  }
   const headers = records.map((r) => r.header);
   const plain = packPlaintext(
     { headers: records.map((r) => r.headerJcs), bodies: records.map((r) => encodeBody(r.body)) },
@@ -193,8 +200,8 @@ function shrinkBody(body: RecordBodyV1, maxBytes: number): RecordBodyV1 {
 
 /**
  * L2 §9: seal `records` as one or more consecutive frames, each ≤ BATCH_MAX_FRAME_BYTES. A frame that
- * doesn't fit splits at the signable record nearest the midpoint (each part must end on a record
- * whose session key is still held); a single record that doesn't fit has its body truncated harder.
+ * doesn't fit splits at the midpoint (any part is signable, ADR-024); a single record that doesn't
+ * fit has its body truncated harder.
  */
 export function sealBatches(
   records: SealRecord[],
@@ -223,17 +230,7 @@ export function sealBatches(
       "a single record exceeds the frame size even when truncated",
     );
   }
-  const mid = records.length >> 1;
-  const cuts = records
-    .map((_, i) => i + 1)
-    .filter((n) => n < records.length && ctx.signerFor((records[n - 1] as SealRecord).sessionKey))
-    .sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid));
-  const cut = cuts[0];
-  if (cut === undefined)
-    throw new AfrError(
-      "BATCH_UNSIGNABLE",
-      "batch too large to split: no earlier record is signed by a session key still held",
-    );
+  const cut = records.length >> 1;
   onEvent("BATCH_SPLIT");
   const left = sealBatches(records.slice(0, cut), prevChainRoot, ctx, onEvent);
   const tip = (left.at(-1) as SealedBatch).pub.chain_root as Hex;

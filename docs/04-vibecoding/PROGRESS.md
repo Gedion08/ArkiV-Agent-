@@ -8,7 +8,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 |---|---|---|
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` (Docker not installed on dev box) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
-| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps) | Blocked: P2-06 Postgres (no Docker on dev box; needs `pg`), P2-07 part 2 (HPKE deps). Not started: P2-12…P2-16 |
+| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps) | Blocked: P2-07 part 2 (HPKE deps). Docker still not installed (needs the user's sudo). Not started: P2-12…P2-16 |
 | P3 Anchor + verify | not started | |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
@@ -17,6 +17,13 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P2-06 PostgresStore + ADR-024 batch signer
+- ADR-024 (L1 §5.3/§5.4, L2 §9, L7 annotated): `batch_sig` may be made by any key in `session_keys`. The recorder signs with the latest held record key, otherwise with the current session key, which is then appended to `session_keys` with no record pointing at it. `batch_digest` and test vectors unchanged. `BATCH_UNSIGNABLE` is gone: the batcher seals every unbatched record and `sealBatches` splits at the midpoint. `SealContext.batchSigner` is new (internal).
+- `@afr/store` `postgres/`: `PostgresStore` + `migratePostgres` (L3 §9 table, GIN + batch indexes, guard trigger for readonly/lock). Attribute numbers are exact jsonb numbers (read back as bigints from their source text); eq conditions use `attrs @>` (GIN), ranges compare jsonb numbers; keyset pagination on (attr, key); blocks are simulated from an injected ms clock (2 s). Deps: `pg` 8.23.1, `@types/pg` 8.23.1 (exact).
+- Tests: `store/test/postgres.test.ts` runs the conformance suite (C8 skipped: no failure injection; a pg INSERT is atomic) plus trigger and 2^63 round-trip checks when `AFR_PG_URL` is set (turbo `env`). Ran against a throwaway PG 16 on :55432. Recorder: crash-tail split test (dead-key backlog > one frame → parts signed by the new key, frames verify). Fixed an order-dependent assertion in the P2-09 `groupDuplicates` test (flaky ~1/3).
+- Not done: CI Postgres service (needs Docker/CI change), mirror mode (P2-15). Docker install needs the user's sudo password.
+- Next: P2-12 (delegation + agent profile before batches).
 
 ### 2026-11-04: P2-11 epoch KEK lifecycle + keygrants
 - `@afr/recorder` `epochs.ts`:
@@ -42,7 +49,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 - Tests: `recorder/test/batcher.test.ts`: R7 (seeded fuzz of 240 records up to ≈ 100 KiB, compressible or not → every frame ≤ 120 KiB, chain links, decrypt + headers/bodies match the journal, batch_sig recovers to a session key), privacy-1 attrs/flags, R8 (lost response / timeout / revert / 429 → one entity, attempts bumped only on revert), crash while submitting → reconcile + idempotent re-put, count/age triggers, dead-session tail batched with the new session_start. `pnpm verify` green. R5 p99 3.16 ms (no regression); T9 still fails locally (2.5–2.8 ms, same before this change, not gated).
 - Not done (by design, later tickets): KEK lifecycle (P2-11, the recorder takes a `kek()` provider), delegation-first gate (P2-12, `canSubmit` hook defaults to allow), checkpoint notices (P2-14), config wiring of an Arkiv/PG store from `afr.config.yaml`.
 - shortcuts: waiting uploads retry every tick without backoff; flags are per batch (an approval in a later batch doesn't clear `has_unapproved_tx`); without a watch key the commitment lists are empty.
-- Open question: L1 §5.3 says `batch_sig` is by the key that signed the batch's last record. After a crash with a large unbatched tail, the only held key is the new session's, so earlier split parts can't be signed (`BATCH_UNSIGNABLE`). Proposal: allow `batch_sig` by any key in `session_keys` with a valid delegation (L7 already only checks signer ∈ session_keys) — needs an ADR.
+- Resolved by ADR-024: L1 §5.3 said `batch_sig` is by the key that signed the batch's last record. After a crash with a large unbatched tail, the only held key is the new session's, so earlier split parts can't be signed (`BATCH_UNSIGNABLE`). Proposal: allow `batch_sig` by any key in `session_keys` with a valid delegation (L7 already only checks signer ∈ session_keys) — needs an ADR.
 - Next: P2-11 (epoch KEK + keygrants), P2-12 (delegation + agent profile before batches).
 
 ### 2026-11-04: P2-09 listBatches + equivocation

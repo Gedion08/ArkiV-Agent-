@@ -373,6 +373,7 @@ CREATE INDEX ee_attrs ON evidence_entities USING gin (attrs jsonb_path_ops);
 ```
 
 - `put` is a single INSERT (idempotent on `idempotency_key`).
+- uint64 attributes are stored as jsonb numbers (exact numerics) so `attrs->k` compares and orders numerically; clients read them back as bigints from the source text, never via floats. `created_at`/`expires_at` come from the store's injected clock, and blocks are simulated as `epoch_ms / 2000`.
 - **Mirror mode** (`store.mirror: postgres`): the recorder writes to the primary (Arkiv), then the mirror. The mirror is a read fallback for the dashboard and the source for re-creating entities after an Arkiv rollback.
 - A Postgres store gives **no third-party guarantees** by itself. Verification relies on signatures + Base anchors, which still hold.
 

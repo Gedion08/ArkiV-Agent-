@@ -103,7 +103,7 @@ describe("groupDuplicates (L3 §8, L7 step 3)", () => {
     const { s1, s2, agentKey, put } = setup();
     await put(s1, 0, 5, "genesis");
     const k1 = await put(s1, 5, 5, "same");
-    await put(s1, 5, 5, "same"); // rollback re-create: byte-identical
+    const k1b = await put(s1, 5, 5, "same"); // rollback re-create: byte-identical
     const forged = await put(s2, 10, 5, "forged");
     const ka = await put(s1, 10, 5, "fork-a");
     const kb = await put(s1, 10, 5, "fork-b");
@@ -111,7 +111,7 @@ describe("groupDuplicates (L3 §8, L7 step 3)", () => {
     // stand-in for the L7 batch_sig + delegation checks
     const { batches, equivocations } = await groupDuplicates(all, (b) => b.meta.creator === W1);
     expect(seqs(batches)).toEqual([0, 5, 10]);
-    expect(batches[1]?.ref.key).toBe(k1);
+    expect([k1, k1b]).toContain(batches[1]?.ref.key); // either copy; ties order by entity key
     expect(equivocations).toHaveLength(1);
     expect(equivocations[0]).toMatchObject({ code: "EQUIVOCATION", lane: 0n, seqFrom: 10n });
     expect([...(equivocations[0]?.keys ?? [])].sort()).toEqual([ka, kb].sort());

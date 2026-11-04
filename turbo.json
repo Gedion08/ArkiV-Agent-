@@ -11,6 +11,7 @@
     "test": {
       "dependsOn": [],
       "outputs": [],
+      "env": ["AFR_PG_URL"],
       "passThroughEnv": ["AFR_CRASH_RUNS", "AFR_BENCH_P99_MS"]
     },
     "check": {

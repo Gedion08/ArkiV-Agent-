@@ -249,6 +249,27 @@ describe("P2-10 batcher + uploader", () => {
     await rec.close();
   });
 
+  test("ADR-024: a dead-key backlog too big for one frame splits; parts are signed by the current key", async () => {
+    const h = harness({ capture: { max_body_bytes: LIMITS.BATCH_TARGET_BYTES } });
+    const first = await Recorder.start({ config: h.config, env, autoRotate: false });
+    for (let i = 0; i < 8; i++)
+      first.capture({ type: "note", body: { args: { text: hex(30_000) } } });
+    await first.delegationReady();
+    first.journal.close(); // crash: the old session key is gone
+    const rec = await h.start();
+    await rec.flush();
+    const current = rec.status().sessionKey.toLowerCase();
+    const pubs = [];
+    for (const e of await stored(h.store)) pubs.push(await checkFrame(rec, e.payload));
+    expect(pubs.length).toBeGreaterThan(1);
+    for (const pub of pubs.slice(0, -1)) {
+      expect(pub.session_keys.at(-1)).toBe(current); // listed only to sign the batch
+      expect(pub.records.every((r) => pub.session_keys[r.sk] !== current)).toBe(true);
+    }
+    expect(rec.status().batches).toEqual({ verified: pubs.length });
+    await rec.close();
+  }, 30_000);
+
   test("canary: plaintext never reaches the uploaded frame, entity attrs or logs (CLAUDE.md rule 2)", async () => {
     const canary = createCanary();
     const logged: string[] = [];

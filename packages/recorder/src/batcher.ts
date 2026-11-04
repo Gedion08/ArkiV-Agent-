@@ -56,8 +56,8 @@ export class Batcher {
   }
 
   /**
-   * Seals every unbatched record up to the last one whose session key is still held (a later
-   * record, e.g. the next session_start, makes the rest signable). Persists them as `sealed`.
+   * Seals every unbatched record (ADR-024: a batch whose record keys are all gone is signed by the
+   * current session key). Persists them as `sealed`.
    */
   seal(): SealedBatch[] {
     const { journal, seal } = this.#o;
@@ -68,13 +68,7 @@ export class Batcher {
       const end = journal.tip().nextSeq - 1n;
       if (end < tip.nextSeq) break;
       const recs = journal.range(tip.nextSeq, end);
-      let last = -1;
-      for (let i = 0; i < recs.length; i++) {
-        if (i >= max && last >= 0) break;
-        if (seal.signerFor((recs[i] as (typeof recs)[number]).sessionKey)) last = i;
-      }
-      if (last < 0) break;
-      const ready: SealRecord[] = recs.slice(0, last + 1).map((r) => ({
+      const ready: SealRecord[] = recs.slice(0, max).map((r) => ({
         ...r,
         body: journal.readBody(r.seq),
       }));
@@ -108,27 +102,21 @@ export class Batcher {
 
   /**
    * Greedy pre-split by estimated size (uncompressed header + body + public overhead) so frames
-   * rarely need sealBatches' split fallback; each chunk ends on a record whose key is still held.
+   * rarely need sealBatches' split fallback.
    */
   *#chunks(records: SealRecord[]): Generator<SealRecord[]> {
     const target = this.#o.targetBytes ?? LIMITS.BATCH_TARGET_BYTES;
     let start = 0;
     let size = 0;
-    let cut = -1; // last signable index in the current chunk
     for (let i = 0; i < records.length; i++) {
       const r = records[i] as SealRecord;
       const bytes = r.headerJcs.length + JSON.stringify(r.body).length + PUB_BYTES_PER_RECORD;
-      if (size + bytes > target && cut >= start) {
-        yield records.slice(start, cut + 1);
+      if (size + bytes > target && i > start) {
+        yield records.slice(start, i);
         size = 0;
-        for (let j = cut + 1; j < i; j++) {
-          const q = records[j] as SealRecord;
-          size += q.headerJcs.length + JSON.stringify(q.body).length + PUB_BYTES_PER_RECORD;
-        }
-        start = cut + 1;
+        start = i;
       }
       size += bytes;
-      if (this.#o.seal.signerFor(r.sessionKey)) cut = i;
     }
     if (start < records.length) yield records.slice(start);
   }

@@ -263,7 +263,9 @@ batch_digest = keccak256( abi.encode(
     bytes32 chain_root,
     bytes32 payload_ct_hash      // keccak256 of the encrypted section bytes (L4)
 ))
-batch_sig = EIP-191 sign(batch_digest) by the session key that signed the batch's last record
+batch_sig = EIP-191 sign(batch_digest) by any key in session_keys (ADR-024): preferably the key that
+            signed the batch's last record; after a crash, the recorder's current session key (then listed
+            in session_keys even if it signed no record of this batch)
 ```
 
 The batch sig binds the public metadata to the ciphertext, so nobody can swap the payload under a valid root.
@@ -277,7 +279,7 @@ interface BatchPublicV1 {
   lane: number;
   seq_from: U64; seq_to: U64;
   prev_chain_root: Hex; chain_root: Hex; batch_root: Hex;
-  session_keys: Hex[];                 // distinct signer addresses in this batch
+  session_keys: Hex[];                 // distinct record signers, in first-appearance order, + the batch signer if it signed no record (ADR-024)
   records: { seq: U64; hash: Hex; sig: Hex; sk: number }[];  // sk = index into session_keys
   tx_commitments: Hex[];               // HMAC tx commitments (ADR-015), order-shuffled
   nonce_commitments: Hex[];            // HMAC (from,nonce) commitments, shuffled

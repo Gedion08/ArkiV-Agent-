@@ -27,6 +27,7 @@ Format: **Context → Decision → Consequences → Status**. ADRs are append-on
 | 021 | Python SDK talks to a local recorder sidecar | Accepted |
 | 022 | Delegations and revocations are separate public entities | Accepted |
 | 023 | Approvals: attested (service-signed) and cryptographic (EIP-712) | Accepted |
+| 024 | `batch_sig` by any delegated key listed in `session_keys` | Accepted |
 
 ---
 
@@ -155,3 +156,10 @@ Format: **Context → Decision → Consequences → Status**. ADRs are append-on
 
 - **Decision:** `approval` records carry `method: "attested" | "eip712"`. Attested = Slack/Telegram identity verified by the approvals service, which signs an `ApprovalAttestation` with its KMS key. EIP-712 = the approver's own wallet signature.
 - **Consequences:** Policies can require `eip712` for high-value actions. Auditors can see which strength was used.
+
+### ADR-024 — Batch signer: any delegated key listed in the batch
+
+- **Context:** L1 §5.3 required `batch_sig` by the session key that signed the batch's last record. Session keys are ephemeral and die with their process. After a crash, the unbatched tail is signed by a dead key. If that tail needs more than one frame, the earlier parts end on dead-key records and can't be signed at all (P2-10 `BATCH_UNSIGNABLE`), which stalls uploads for that lane.
+- **Decision:** `batch_sig` may be made by **any** key in `session_keys`. The recorder prefers the last record's key, then any other record key it still holds, and otherwise uses its current session key, **appending it to `session_keys`** even though it signed no record in the batch (no `records[].sk` points at it). Verifiers keep the existing rules, which already suffice: the signer ∈ `session_keys` (`BATCH_SIG`), and every key in `session_keys` holds a valid delegation for the agent, lane and records scope (`DELEGATION_INVALID`).
+- **Consequences:** Any batch can be sealed after a crash, so a large unbatched tail no longer blocks the lane. `batch_digest`, the frame and `session_keys` typing are unchanged, so existing test vectors stay valid. `session_keys` is now "record signers plus, possibly, the batch signer". Auditors can see when a batch was signed by a later session (the signer has no records in it).
+
