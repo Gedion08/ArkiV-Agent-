@@ -1,9 +1,8 @@
 {
   "name": "@afr/cli",
-  "version": "0.0.0",
-  "description": "fr CLI",
-  "private": true,
-  "license": "SEE LICENSE IN ../../LICENSE-APPS.md",
+  "version": "0.1.0",
+  "description": "fr: verify an AI agent's flight recorder (AFR)",
+  "license": "Apache-2.0",
   "type": "module",
   "exports": {
     ".": {
@@ -34,5 +33,9 @@
   },
   "devDependencies": {
     "@afr/log": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

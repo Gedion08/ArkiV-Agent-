@@ -1,6 +1,6 @@
 {
   "name": "@afr/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "L1 record format, JCS, hashing, signing, merkle, EIP-712 types",
   "license": "Apache-2.0",
   "type": "module",
@@ -31,5 +31,9 @@
   "devDependencies": {
     "ethers": "6.17.0",
     "fast-check": "4.10.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

@@ -1,5 +1,7 @@
 # L1 — Record Format & Crypto Core (`@afr/core`)
 
+> **Format v1-rc (frozen 2026-11-05, ADR-025).** The record, batch, delegation, checkpoint and anchor formats, domain strings, EIP-712 types and constants in this doc are frozen. From here on, any change to them needs an ADR in `docs/01-architecture/ADRS.md` and regenerated `packages/test-vectors`. Editorial fixes that change no bytes or behaviour don't.
+
 > **[NORMATIVE]** This layer defines the evidence format. Recorder, verifier, dashboard, watcher and any third-party implementation MUST match it byte for byte. Once v1 ships, changes to hashed structures require a version bump (`v: 2`).
 
 | | |

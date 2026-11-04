@@ -18,6 +18,24 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 
 ## Session entries
 
+### 2026-11-05: P3 DoD: verifier README, seeded demo agent, npm release workflow, format v1-rc
+- `tools/e2e/scripts/testnet-e2e.ts --agent eip155:84532:…` records for a real ERC-8004 agent:
+  - the operator key comes from `AFR_OPERATOR_KEY`, and verify runs against the on-chain registration;
+  - the journal is kept in `.afr-demo/agents/<agentKey>`, and a second run for the same agent is refused (a fresh journal would restart lane 0 at seq 0: an equivocation).
+- Demo agent `…:10588` seeded (operator, writer and anchor key `0x952d…35af`): full verify `PASS`, 7 records, anchored in epoch 3 (tx `0x19fd6eca…5b3c`), 0 leaks, 59 s.
+- `apps/cli/README.md`: "verify an agent in 60 seconds", written from real output. Build from source (not on npm yet), an Arkiv access key, one command. It explains each line of the report and the exit codes.
+  - Checked from a clean env with public RPCs: `PASS (structural)` in about 17 s, plus one info `UNANCHORED_TAIL` (the `session_end` written after the anchor); `fr prove … 3` → anchored.
+- **License decision (owner):** `apps/cli` is Apache-2.0, an exception in `LICENSE-APPS.md`. This matches L7's "open source" note.
+- **Publishable:** `@afr/cli` and its workspace closure (core, crypto, identity, log, store, recorder, verifier) are at 0.1.0 with `publishConfig` set to public + provenance.
+  - Checked: `pnpm pack` of all 8 contains only `dist/`, `package.json`, LICENSE and the README, and `workspace:*` becomes `0.1.0`.
+  - Installed from the tarballs into an empty project, the `fr` binary verifies the demo agent (`PASS (structural)`, exit 0). `pnpm -r publish --dry-run` runs in dependency order.
+- **`.github/workflows/release-cli.yml`:** manual dispatch, dry run by default. It builds, tests cli + verifier, copies LICENSE, sets `repository.*` from the running repo (provenance requires it), publishes with `--provenance` (OIDC `id-token: write`, `NPM_TOKEN`), then smoke-tests `npx @afr/cli@<v> --help`.
+  - shortcut: no changesets; the full `release.yml` (images, cosign, SBOM, binaries) comes later.
+- No `@afr/*` packages on npm yet (404). The owner has to create or own the `@afr` npm org before the first run. The repo has no git remote yet.
+- `@afr/cli` depends on `@afr/recorder` (for `fr journal verify`), so every install pulls the native `better-sqlite3`. A later split would make `npx @afr/cli verify` lighter.
+- **Format v1-rc frozen (ADR-025):** a notice at the top of L1, L4 (§3–§6) and L7. Any change from here needs an ADR and regenerated vectors.
+- Still open in the P3 DoD: the first real publish, and a third person following the README.
+
 ### 2026-11-05: P3-13 nightly `testnet-e2e.yml` (passes locally on Rabdi + Base Sepolia)
 - `tools/e2e/scripts/testnet-e2e.ts`: the P2 demo plus anchoring and verify, on Rabdi + Base Sepolia:
   - checks first (reads only) that `AFR_ANCHOR_KEY` is on the RecorderAnchor allowlist and funded: else `NOT_RECORDER` / `ANCHOR_KEY_UNFUNDED`, exit 1, nothing spent;

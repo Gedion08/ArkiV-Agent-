@@ -1,0 +1,57 @@
+# P3 DoD: publish @afr/cli@0.x and its workspace dependencies to npm with provenance (L11 §3 release.yml).
+# shortcut: manual dispatch on the versions already in package.json, not changesets (L11 §3); move to
+# changesets with the full release.yml (GHCR/ECR images, cosign, SBOM, CLI binaries) before v1.
+# Needs repo secret NPM_TOKEN (an npm automation token for the @afr scope). Provenance is signed with
+# this workflow's OIDC token, so it only works from GitHub Actions, never from a laptop.
+name: release-cli
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack and show what would be published, without publishing"
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: release-cli
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter "@afr/cli..." build
+      - run: pnpm --filter @afr/cli --filter @afr/verifier test
+      - name: license and repository in every package
+        # provenance requires repository.url to match the repo this workflow runs in
+        run: |
+          for d in $(pnpm --filter "@afr/cli..." exec pwd); do
+            cp LICENSE "$d/LICENSE"
+            (cd "$d" && npm pkg set repository.type=git \
+              "repository.url=git+${{ github.server_url }}/${{ github.repository }}.git" \
+              "repository.directory=${d#"$GITHUB_WORKSPACE/"}")
+          done
+      - name: publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          pnpm --filter "@afr/cli..." -r publish --access public --provenance --no-git-checks \
+            $([ "$DRY_RUN" = true ] && echo --dry-run)
+      - name: smoke test the published CLI
+        if: ${{ !inputs.dry_run }}
+        run: |
+          v=$(jq -r .version apps/cli/package.json)
+          for i in 1 2 3 4 5 6; do npm view "@afr/cli@$v" version && break; sleep 20; done
+          cd "$RUNNER_TEMP" && npx --yes "@afr/cli@$v" --help

@@ -10,8 +10,13 @@
 // Spends test GLM (capped at 0.05) and one anchor tx of Base Sepolia ETH. Exit 0 PASS, 1 FAIL, 2 config.
 // Every run gets a new agent, operator key and Postgres schema, so a failed night never blocks the next.
 // The schema is dropped on success and kept on failure (named in the report) for debugging.
+//
+// --agent eip155:84532:<registry>:<id> records for a real ERC-8004 agent instead (operator key in
+// AFR_OPERATOR_KEY) and verifies against its on-chain registration: this seeds the README demo agent.
+// Its journal is kept in .afr-demo/agents/<agentKey>, and a second run for the same agent is refused:
+// a fresh journal would restart the lane at seq 0, an equivocation.
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,7 +39,13 @@ import {
   migrate,
   newRecorderKey,
 } from "../../../apps/api/src/index.js";
-import { ANCHOR_CONTRACTS, agentKey, CHAINS } from "../../../packages/core/src/index.js";
+import {
+  ANCHOR_CONTRACTS,
+  agentKey,
+  CHAINS,
+  isLocalAgentId,
+  parseAgentId,
+} from "../../../packages/core/src/index.js";
 import { generateReaderKey, sealKeygrant } from "../../../packages/crypto/src/index.js";
 import {
   AFR_SERVICE_NAME,
@@ -45,6 +56,7 @@ import { parseConfig, Recorder } from "../../../packages/recorder/src/index.js";
 import { createArkivStore, SCHEMA_NAMES, SCHEMA_SPEC } from "../../../packages/store/src/index.js";
 import {
   rpcAnchorReader,
+  rpcIdentityReader,
   staticIdentityReader,
   verifyAgent,
 } from "../../../packages/verifier/src/index.js";
@@ -79,16 +91,36 @@ function readEnv() {
 
 async function main(): Promise<number> {
   const { values: v } = parseArgs({
-    options: { records: { type: "string", default: "4" }, report: { type: "string" } },
+    options: {
+      records: { type: "string", default: "4" },
+      report: { type: "string" },
+      agent: { type: "string" },
+    },
   });
-  if (!/^[1-9]\d?$/.test(v.records ?? "")) {
-    process.stdout.write("usage: testnet-e2e.ts [--records 1..99] [--report out.json]\n");
+  const usage = (why: string) => {
+    process.stdout.write(
+      `${why}\nusage: testnet-e2e.ts [--records 1..99] [--report out.json] [--agent eip155:84532:…]\n`,
+    );
     return 2;
-  }
+  };
+  if (!/^[1-9]\d?$/.test(v.records ?? "")) return usage("bad --records");
   const env = readEnv();
-  if (Array.isArray(env)) {
-    process.stdout.write(`missing env: ${env.join(", ")}\n`);
-    return 2;
+  if (Array.isArray(env)) return usage(`missing env: ${env.join(", ")}`);
+  let real: { id: string; operatorKey: Hex; dir: string } | undefined;
+  if (v.agent) {
+    try {
+      if (isLocalAgentId(v.agent) || parseAgentId(v.agent).chainId !== BigInt(CHAINS.BASE_SEPOLIA))
+        return usage("--agent must be a Base Sepolia ERC-8004 agent id");
+    } catch {
+      return usage("--agent is not a valid agent id");
+    }
+    const operatorKey = process.env.AFR_OPERATOR_KEY;
+    if (!/^0x[0-9a-fA-F]{64}$/.test(operatorKey ?? ""))
+      return usage("--agent needs AFR_OPERATOR_KEY");
+    const dir = join(ROOT, ".afr-demo", "agents", agentKey(v.agent).slice(2));
+    if (existsSync(dir))
+      return usage(`${v.agent} was already recorded (${dir}): refusing a second lane-0 history`);
+    real = { id: v.agent, operatorKey: operatorKey as Hex, dir };
   }
   const started = Date.now();
   const report: Record<string, unknown> = { scenario: "afr-testnet-e2e/1", ok: false };
@@ -142,8 +174,9 @@ async function main(): Promise<number> {
     });
     const apiUrl = await app.listen({ port: 0, host: "127.0.0.1" });
 
-    const agentId = `local:${randomUUID()}`;
-    const operatorKey = generatePrivateKey();
+    const agentId = real?.id ?? `local:${randomUUID()}`;
+    const operatorKey = real?.operatorKey ?? generatePrivateKey();
+    if (real) mkdirSync(real.dir, { recursive: true, mode: 0o700 }); // from here on, a rerun is refused
     const reader = await generateReaderKey();
     report.agent_id = agentId;
     // the org, agent and recorder key the dashboard would create
@@ -174,7 +207,7 @@ async function main(): Promise<number> {
         {
           version: 1,
           agent: { id: agentId, retention_days: 30 },
-          data_dir: mkdtempSync(join(tmpdir(), "afr-e2e-")),
+          data_dir: real?.dir ?? mkdtempSync(join(tmpdir(), "afr-e2e-")),
           delegation: { mode: "operator_env" },
           encryption: { readers: [reader.pub] },
           batch: { heartbeat: false }, // nothing after the anchored checkpoint, so verify sees no tail
@@ -254,10 +287,12 @@ async function main(): Promise<number> {
       };
       const verify = await verifyAgent(agentId, {
         store,
-        identity: staticIdentityReader(
-          privateKeyToAccount(operatorKey).address.toLowerCase() as Hex,
-          afr,
-        ),
+        identity: real
+          ? rpcIdentityReader(publicClient) // the agent's on-chain registration and operator
+          : staticIdentityReader(
+              privateKeyToAccount(operatorKey).address.toLowerCase() as Hex,
+              afr,
+            ),
         anchors: rpcAnchorReader({ [CHAINS.BASE_SEPOLIA]: publicClient }),
         reader,
         writers: [writer],

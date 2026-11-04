@@ -1,6 +1,6 @@
 {
   "name": "@afr/recorder",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "L2 pipeline, journal, batcher, uploader, session keys",
   "license": "Apache-2.0",
   "type": "module",
@@ -32,5 +32,9 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "9.6.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

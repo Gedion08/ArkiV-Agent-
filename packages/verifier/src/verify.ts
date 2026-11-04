@@ -35,7 +35,7 @@ import { type Hex, keccak256, recoverTypedDataAddress, type TypedDataDefinition 
 import { epochKek, openBatch } from "./decrypt.js";
 import type { AnchorReader, IdentityReader } from "./readers.js";
 
-export const VERIFIER_VERSION = "@afr/verifier@0.0.0";
+export const VERIFIER_VERSION = "@afr/verifier@0.1.0"; // keep in step with package.json
 /** L1 §7: a record must be anchored before its delegation's notAfter + 1 h. */
 const ANCHOR_GRACE_S = 3600n;
 

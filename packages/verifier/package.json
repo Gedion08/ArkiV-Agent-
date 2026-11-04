@@ -1,6 +1,6 @@
 {
   "name": "@afr/verifier",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "L7 verification library (browser + node)",
   "license": "Apache-2.0",
   "type": "module",
@@ -25,5 +25,9 @@
     "@afr/identity": "workspace:*",
     "@afr/store": "workspace:*",
     "viem": "2.57.7"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

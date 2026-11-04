@@ -36,8 +36,8 @@
 
 ## Definition of done
 
-- [ ] Verifier README with "verify an agent in 60 seconds" instructions. Published to npm with provenance (`@afr/cli@0.x`).
-- [ ] Spec docs (L1/L4/L7) frozen as **format v1-rc**. Any change after this needs an ADR.
+- [ ] Verifier README with "verify an agent in 60 seconds" instructions. Published to npm with provenance (`@afr/cli@0.x`). README done (`apps/cli/README.md`); `release-cli.yml` publishes with provenance, not yet run (needs a pushed repo, the `@afr` npm org and `NPM_TOKEN`).
+- [x] Spec docs (L1/L4/L7) frozen as **format v1-rc**. Any change after this needs an ADR. (ADR-025, 2026-11-05)
 - [ ] A third person (not the implementer) verifies the demo agent using only the README.
 
 ## Vibecoding script

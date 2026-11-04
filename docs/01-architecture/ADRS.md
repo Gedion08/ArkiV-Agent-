@@ -163,3 +163,9 @@ Format: **Context → Decision → Consequences → Status**. ADRs are append-on
 - **Decision:** `batch_sig` may be made by **any** key in `session_keys`. The recorder prefers the last record's key, then any other record key it still holds, and otherwise uses its current session key, **appending it to `session_keys`** even though it signed no record in the batch (no `records[].sk` points at it). Verifiers keep the existing rules, which already suffice: the signer ∈ `session_keys` (`BATCH_SIG`), and every key in `session_keys` holds a valid delegation for the agent, lane and records scope (`DELEGATION_INVALID`).
 - **Consequences:** Any batch can be sealed after a crash, so a large unbatched tail no longer blocks the lane. `batch_digest`, the frame and `session_keys` typing are unchanged, so existing test vectors stay valid. `session_keys` is now "record signers plus, possibly, the batch signer". Auditors can see when a batch was signed by a later session (the signer has no records in it).
 
+### ADR-025 — Format v1-rc freeze
+
+- **Context:** P3's definition of done asks for the evidence formats to be frozen before an outside party verifies the demo agent and before `@afr/cli` is published. Recorders already write these formats to Arkiv and anchor them on Base Sepolia, so a silent change would break evidence that exists today.
+- **Decision:** L1 (record format and crypto), L4 §3–§6 (encryption byte formats) and L7 (verification rules, findings, exit codes, `afr-proof/1`) are frozen as **format v1-rc** as of 2026-11-05. Any change to them needs its own ADR and regenerated test vectors. Committed vectors stay immutable (CLAUDE.md rule 1).
+- **Consequences:** Third-party verifiers can be built against these docs now. v1 GA turns v1-rc into v1, after the external crypto review (ADR-009). A change found before then goes through an ADR, and a breaking one bumps `v`.
+

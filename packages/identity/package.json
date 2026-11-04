@@ -1,6 +1,6 @@
 {
   "name": "@afr/identity",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "L5 ERC-8004 adapter",
   "license": "Apache-2.0",
   "type": "module",
@@ -22,5 +22,9 @@
   "dependencies": {
     "@afr/core": "workspace:*",
     "viem": "2.57.7"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

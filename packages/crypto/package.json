@@ -1,6 +1,6 @@
 {
   "name": "@afr/crypto",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "L4 AES-GCM, HPKE, KEK/DEK, HMAC commitments",
   "license": "Apache-2.0",
   "type": "module",
@@ -29,5 +29,9 @@
   },
   "devDependencies": {
     "ethers": "6.17.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

@@ -1,5 +1,7 @@
 # L7 — Verifier (`fr verify`) & Evidence Packs
 
+> **Format v1-rc (frozen 2026-11-05, ADR-025).** The verification rules, finding codes, result levels, exit codes and the `afr-proof/1` format in this doc are frozen. From here on, any change to them needs an ADR in `docs/01-architecture/ADRS.md` and regenerated `packages/test-vectors`. Editorial fixes that change no bytes or behaviour don't.
+
 > Open source (Apache-2.0). It must never depend on AFR servers. **If the verifier passes, the evidence holds. If it fails, it says exactly where and why.**
 
 | | |

@@ -1,5 +1,7 @@
 # L4 — Encryption & Access Control (`@afr/crypto`)
 
+> **Format v1-rc (frozen 2026-11-05, ADR-025).** The byte formats in §3–§6 (batch encryption, DEK wrapping, HPKE keygrants, reader keys) are frozen. The external cryptography review (ADR-009) still gates v1 GA. From here on, any change to them needs an ADR in `docs/01-architecture/ADRS.md` and regenerated `packages/test-vectors`. Editorial fixes that change no bytes or behaviour don't.
+
 > **[NORMATIVE]** for byte formats (§3–§6). Needs an external cryptography review before v1 GA (ADR-009).
 
 | | |
