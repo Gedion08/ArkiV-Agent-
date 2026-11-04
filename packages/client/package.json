@@ -17,6 +17,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
+    "generate": "openapi-typescript openapi.json -o src/schema.ts",
     "test": "vitest run --root . --config ../../vitest.config.ts"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0"
   }
 }

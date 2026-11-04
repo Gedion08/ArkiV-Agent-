@@ -1,4 +1,5 @@
-// L8 §3 schema, v0 subset (tenancy, agents, recorder keys, lanes, checkpoints, batch index, intents).
+// L8 §3 schema subset (tenancy, agents, recorder keys, lanes, checkpoints, batch index, intents, invitations,
+// watched addresses) + RLS policies for the `afr_app` role (§1).
 // Raw SQL over `pg` instead of Drizzle (lean v0, L8 §3 note). Migrations are append-only.
 import type { Pool } from "pg";
 
@@ -42,6 +43,41 @@ const MIGRATIONS: string[] = [
      PRIMARY KEY (agent_id, lane, seq));
    CREATE TABLE audit_log (id bigserial PRIMARY KEY, org_id uuid, actor text NOT NULL, action text NOT NULL,
      target text, ip inet, at timestamptz NOT NULL DEFAULT now());`,
+  // v2: per-org DEK (§8), invitations, watched addresses, RLS (§1) for the `afr_app` role
+  `ALTER TABLE orgs ADD COLUMN dek_wrapped bytea;
+   CREATE TABLE invitations (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES orgs,
+     role text NOT NULL CHECK (role IN ('owner','admin','engineer','viewer','auditor')), wallet bytea, email text,
+     token_hash bytea UNIQUE NOT NULL, created_by uuid, expires_at timestamptz NOT NULL,
+     accepted_at timestamptz, accepted_by uuid, revoked_at timestamptz);
+   CREATE INDEX invitations_org ON invitations (org_id);
+   CREATE TABLE watched_addresses (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES orgs,
+     agent_id uuid NOT NULL REFERENCES agents, chain_id bigint NOT NULL, address bytea NOT NULL,
+     kind text NOT NULL CHECK (kind IN ('eoa','smart_account','safe','session_key')), since_block bigint,
+     source text NOT NULL DEFAULT 'api', created_at timestamptz NOT NULL DEFAULT now(),
+     UNIQUE (agent_id, chain_id, address));
+   DO $$ BEGIN
+     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'afr_app') THEN CREATE ROLE afr_app NOLOGIN; END IF;
+     EXECUTE format('GRANT afr_app TO %I', current_user);
+     EXECUTE format('GRANT USAGE ON SCHEMA %I TO afr_app', current_schema());
+     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO afr_app', current_schema());
+     EXECUTE format('GRANT USAGE ON ALL SEQUENCES IN SCHEMA %I TO afr_app', current_schema());
+     EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO afr_app', current_schema());
+     EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT USAGE ON SEQUENCES TO afr_app', current_schema());
+   END $$;
+   CREATE FUNCTION afr_org() RETURNS uuid LANGUAGE sql STABLE
+     AS $$ SELECT nullif(current_setting('app.org_id', true), '')::uuid $$;
+   ALTER TABLE orgs ENABLE ROW LEVEL SECURITY;
+   CREATE POLICY tenant ON orgs TO afr_app USING (id = afr_org());
+   DO $$ DECLARE t text; BEGIN
+     FOREACH t IN ARRAY ARRAY['memberships','agents','recorder_keys','invitations','watched_addresses','audit_log'] LOOP
+       EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+       EXECUTE format('CREATE POLICY tenant ON %I TO afr_app USING (org_id = afr_org()) WITH CHECK (org_id = afr_org())', t);
+     END LOOP;
+     FOREACH t IN ARRAY ARRAY['agent_lanes','watch_keys','session_keys','batches_index','checkpoints','tx_intents'] LOOP
+       EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+       EXECUTE format('CREATE POLICY tenant ON %I TO afr_app USING (agent_id IN (SELECT id FROM agents WHERE org_id = afr_org())) WITH CHECK (agent_id IN (SELECT id FROM agents WHERE org_id = afr_org()))', t);
+     END LOOP;
+   END $$;`,
 ];
 
 /** Applies pending migrations, one transaction each; an advisory lock keeps concurrent starts serial. */

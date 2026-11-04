@@ -1,37 +1,51 @@
-// L8 apps/api v0: Fastify bootstrap. Routes: SIWE auth, orgs, agents (+ watch keys, recorder keys) and
-// the recorder endpoints (§4.1–§4.4). No plaintext ever: strict schemas reject unknown fields (§1, §8).
-import { randomBytes } from "node:crypto";
-import { aesGcmOpen, aesGcmSeal } from "@afr/crypto";
+// L8 apps/api: Fastify bootstrap. Routes: SIWE auth, orgs + members, agents (+ watch keys, recorder keys,
+// watched addresses, read views) and the recorder endpoints (§4.1–§4.4). No plaintext ever: strict schemas
+// reject unknown fields (§1, §8). Zod schemas validate, serialize and generate OpenAPI (§1).
 import cookie from "@fastify/cookie";
+import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
+import swagger from "@fastify/swagger";
 import Fastify, { type FastifyInstance } from "fastify";
-import { ZodError } from "zod";
+import {
+  hasZodFastifySchemaValidationErrors,
+  isResponseSerializationError,
+  jsonSchemaTransform,
+  serializerCompiler,
+  validatorCompiler,
+} from "fastify-type-provider-zod";
 import {
   ApiError,
   type ApiOptions,
   bufHex,
-  type KeyWrapper,
+  LIMITS,
   type RequireUser,
   SESSION_COOKIE,
   sha256,
 } from "./http.js";
+import { agentRoutes } from "./routes/agents.js";
+import { authRoutes } from "./routes/auth.js";
+import { orgRoutes } from "./routes/orgs.js";
 import { recorderRoutes } from "./routes/recorder.js";
-import { userRoutes } from "./routes/user.js";
-
-/** shortcut: one local AES-256-GCM master key (iv ‖ ct); per-org KMS envelopes land in P3/P6. */
-export function localKeyWrapper(masterKey: Uint8Array): KeyWrapper {
-  return {
-    wrap: (plain, aad) => {
-      const iv = randomBytes(12);
-      return Buffer.concat([iv, aesGcmSeal(masterKey, iv, plain, aad)]);
-    },
-    unwrap: (w, aad) => aesGcmOpen(masterKey, w.subarray(0, 12), w.subarray(12), aad),
-  };
-}
+import { OrgSecrets } from "./secrets.js";
 
 export async function buildServer(o: ApiOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: false, bodyLimit: 1 << 20 });
   const now = o.now ?? Date.now;
+  const secrets = new OrgSecrets(o.pool, o.keys);
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
+
   await app.register(cookie);
+  await app.register(helmet); // §8 security headers
+  // §7; shortcut: in-memory counters are per instance, move to the Redis store when the API runs > 1 task
+  await app.register(rateLimit, { global: true, ...LIMITS.session });
+  await app.register(swagger, {
+    openapi: {
+      openapi: "3.1.0",
+      info: { title: "AFR API", version: "1" },
+    },
+    transform: jsonSchemaTransform,
+  });
 
   // keep the exact bytes: the recorder HMAC covers sha256(body)
   app.addContentTypeParser("application/json", { parseAs: "buffer" }, (req, body, done) => {
@@ -47,15 +61,21 @@ export async function buildServer(o: ApiOptions): Promise<FastifyInstance> {
   app.setErrorHandler((e, req, reply) => {
     // never echo request content: it may be what the plaintext guard just rejected
     if (e instanceof ApiError) return reply.status(e.status).send({ code: e.code });
-    if (e instanceof ZodError)
+    if (hasZodFastifySchemaValidationErrors(e))
       return reply.status(400).send({
         code: "INVALID_REQUEST",
-        issues: e.issues.map((i) => ({ path: i.path.join("."), code: i.code })),
+        issues: e.validation.map((i) => ({ path: i.instancePath, code: i.keyword })),
       });
     const status = (e as { statusCode?: number }).statusCode;
+    if (status === 429) return reply.status(429).send({ code: "RATE_LIMITED" });
     if (status && status < 500) return reply.status(status).send({ code: "BAD_REQUEST" });
     o.logger?.error(
-      { code: (e as { code?: string }).code ?? "INTERNAL", route: req.routeOptions.url },
+      {
+        code: isResponseSerializationError(e)
+          ? "RESPONSE_SHAPE"
+          : ((e as { code?: string }).code ?? "INTERNAL"),
+        route: req.routeOptions.url,
+      },
       "request failed",
     );
     return reply.status(500).send({ code: "INTERNAL" });
@@ -80,7 +100,10 @@ export async function buildServer(o: ApiOptions): Promise<FastifyInstance> {
     req.user = { id: s.user_id, wallet: bufHex(s.wallet) };
   };
 
-  await app.register(userRoutes, { ...o, now, requireUser });
-  await app.register(recorderRoutes, { ...o, now });
+  const ctx = { ...o, now, requireUser, secrets };
+  await app.register(authRoutes, ctx);
+  await app.register(orgRoutes, ctx);
+  await app.register(agentRoutes, ctx);
+  await app.register(recorderRoutes, ctx);
   return app;
 }

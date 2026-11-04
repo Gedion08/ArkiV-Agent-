@@ -12,7 +12,9 @@
       "!contracts/lib",
       "!contracts/out",
       "!docs",
-      "!packages/test-vectors/vectors"
+      "!packages/test-vectors/vectors",
+      "!packages/client/openapi.json",
+      "!packages/client/src/schema.ts"
     ]
   },
   "formatter": {

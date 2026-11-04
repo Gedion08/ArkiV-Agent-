@@ -13,7 +13,7 @@
 ## 1. Principles
 
 - **No plaintext, ever.** The API stores public data, metadata, HMAC commitments, wrapped watch keys (KMS) and wrapped keygrants. Request schemas reject fields named `body`, `args`, `result`, `context`, `plaintext`.
-- **Tenancy at the query layer.** Every table carries `org_id`. Every repository function takes `ctx.orgId` and adds it to `WHERE`. Postgres RLS is enabled as a second line of defence (`SET app.org_id` per request).
+- **Tenancy at the query layer.** Every table carries `org_id` (or reaches it through `agents`). Every repository function takes `ctx.orgId` and adds it to `WHERE`. Postgres RLS is the second line of defence: `inOrg(pool, orgId, fn)` runs one transaction as the `afr_app` role with `app.org_id` set (`SET LOCAL ROLE` + `set_config(..., true)`), and policies on every tenant table hide and refuse other orgs' rows. System lookups that must cross orgs (session, recorder-key and invitation-token auth, a user's own org list, org creation) run as the owner role, which RLS doesn't apply to.
 - **Contract-first.** Zod schemas generate OpenAPI 3.1, which generates the typed client.
 - **Idempotent writes** via the `Idempotency-Key` header on POSTs.
 
@@ -23,7 +23,7 @@
 
 | Principal | Auth | Scope |
 |---|---|---|
-| Dashboard user | SIWE (EIP-4361) → session cookie (`__Host-afr`, httpOnly, Secure, SameSite=Strict, 12 h) + CSRF token header | org memberships |
+| Dashboard user | SIWE (EIP-4361; EOAs verify locally, ERC-1271 / ERC-6492 wallets through the API's `siweClient` on the message's chain) → session cookie (`__Host-afr`, httpOnly, Secure, SameSite=Strict, 12 h) + CSRF token header | org memberships |
 | Recorder | `Authorization: Bearer afr_rk_<id>_<secret>` + `X-AFR-Signature: hex(HMAC-SHA256(sha256(secret), METHOD \n path \n ts \n hex(sha256(body))))` + `X-AFR-Timestamp` (unix seconds, ±5 min). `<id>` is 16 hex chars, `<secret>` 64; `path` includes the query string; the API stores only `sha256(secret)` | one agent (+ lanes) |
 | Service (anchor, watcher) | mTLS inside the VPC + service JWT (short-lived, KMS-signed) | per service |
 | Public | none, rate-limited | `/v1/public/*` |
@@ -46,7 +46,7 @@
 
 ## 3. Database schema (Drizzle; abbreviated DDL)
 
-> v0 (P2-13) uses raw SQL migrations over `pg` (`apps/api/src/db/migrations.ts`) with the tables needed so far, plus `sessions`, `siwe_nonces` and `tx_intents`. Drizzle, OpenAPI generation, helmet, rate limits and pg-boss arrive with the tickets that need them.
+> The API uses raw SQL migrations over `pg` (`apps/api/src/db/migrations.ts`) with the tables needed so far, plus `sessions`, `siwe_nonces`, `tx_intents` and `orgs.dek_wrapped` (§8). Drizzle and pg-boss arrive with the tickets that need them.
 
 ```sql
 -- tenancy
@@ -135,7 +135,10 @@ CREATE TABLE audit_log (id bigserial PK, org_id uuid, actor text, action text, t
 
 ### 4.2 Orgs, members
 
-`GET/POST /v1/orgs`, `GET/PATCH /v1/orgs/{org}`, `GET/POST/DELETE /v1/orgs/{org}/members`, `POST /v1/orgs/{org}/invitations`.
+`GET/POST /v1/orgs`, `GET/PATCH /v1/orgs/{org}`, `GET/POST/DELETE /v1/orgs/{org}/members`, `POST /v1/orgs/{org}/invitations`, `POST /v1/invitations/accept`.
+
+- `POST /members {wallet, role}` adds a wallet or changes a member's role. `DELETE /members/{userId}`: owner/admin, or a member leaving. Only an owner grants, demotes or removes `owner`, and the last owner stays (409 `LAST_OWNER`).
+- Invitations: `{role, wallet?, email?}` → `afr_inv_<64 hex>` (shown once, only its sha256 stored, 7 days, single use). A `wallet` binds it to that signer; accepting as anyone else is 404. An existing member keeps their role.
 
 ### 4.3 Agents
 
@@ -145,10 +148,10 @@ CREATE TABLE audit_log (id bigserial PK, org_id uuid, actor text, action text, t
 | GET/PATCH | `/v1/agents/{id}` | settings. Privacy/retention changes require a new signed AgentProfile (`profile_statement` in the body) |
 | POST | `/v1/agents/{id}/recorder-keys` | → `afr_rk_…` (shown once) |
 | DELETE | `/v1/agents/{id}/recorder-keys/{keyId}` | |
-| GET/POST/DELETE | `/v1/agents/{id}/watched-addresses` | |
+| GET/POST/DELETE | `/v1/agents/{id}/watched-addresses` | `{chain_id, address, kind: eoa\|smart_account\|safe\|session_key, since_block?}`; re-adding returns the existing row (200) |
 | GET | `/v1/agents/{id}/lanes` | status per lane |
-| GET | `/v1/agents/{id}/batches?lane&from_seq&limit` | public index (UI convenience, verifiable against Arkiv) |
-| GET | `/v1/agents/{id}/checkpoints` | |
+| GET | `/v1/agents/{id}/batches?lane&from_seq&limit` | public index (UI convenience, verifiable against Arkiv); `limit` ≤ 500, cursor `next_from_seq` |
+| GET | `/v1/agents/{id}/checkpoints?lane&after_seq&limit` | cursor `next_after_seq` |
 | GET | `/v1/agents/{id}/registration` | proposed ERC-8004 registration JSON with the AFR entry |
 | POST | `/v1/agents/{id}/kill-switch/test` | dry-run the kill-switch actions |
 
@@ -237,17 +240,17 @@ Stripe Billing: products/prices per plan + metered prices. Customer portal for i
 
 | Principal | Limit |
 |---|---|
-| Recorder | 50 req/s per key (burst 200). Intents are batched (≤ 100 per call) |
+| Recorder | 50 req/s per key (burst 200: 200 per 4 s). Counted after auth, so forged requests can't spend a key's budget. Intents are batched (≤ 100 per call) |
 | Dashboard session | 20 req/s |
 | Public | 5 req/s per IP. Summary is cached for 5 min |
-| Auth nonce | 10/min per IP |
+| Auth nonce, SIWE login | 10/min per IP |
 
 ---
 
 ## 8. Security requirements
 
 - Input validation via Zod on every route. Unknown fields are rejected (`.strict()`).
-- Secrets (channel configs, watch keys, pre-signed revocations) are encrypted with KMS envelope keys per org.
+- Secrets (channel configs, watch keys, pre-signed revocations) are encrypted with KMS envelope keys per org: each org's random AES-256 DEK is stored only wrapped by the KEK (`kmsKeyWrapper`: KMS `Encrypt`/`Decrypt` with encryption context `{afr_org}`; `localKeyWrapper` for dev), and secrets are sealed `0x01 ‖ iv ‖ AES-GCM(dek, iv, plain, aad)` with the agent key or session key as AAD.
 - Audit log for every mutation: who, what, from which IP.
 - CSRF: double-submit token + SameSite=Strict.
 - CORS: dashboard origin only.

@@ -8,7 +8,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 |---|---|---|
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
-| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps), P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓ | Blocked: P2-07 part 2 (HPKE deps). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). Not started: P2-15, P2-16 |
+| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps), P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ | Blocked: P2-07 part 2 (HPKE deps). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). Not started: P2-15, P2-16 |
 | P3 Anchor + verify | not started | |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
@@ -17,6 +17,19 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: apps/api hardening (closes the P2-13 shortcuts)
+- Deps (approved, exact): `@fastify/rate-limit` 11.2.2, `@fastify/helmet` 13.2.0, `@fastify/swagger` 9.9.3, `fastify-type-provider-zod` 7.0.0, `openapi-types` 12.1.3, `@aws-sdk/client-kms` 3.1161.0 (api); `openapi-fetch` 0.17.0 + dev `openapi-typescript` 7.13.0 (client; its peer range says TS 5, works on 6.0.3).
+- Public API change (`@afr/api`): `KeyWrapper` is now an async per-org data-key wrapper (`wrapDataKey`/`unwrapDataKey`); new `kmsKeyWrapper`, `OrgSecrets`, `inOrg`/`inTx`, `openApiDocument`; `ApiOptions.siweClient`. `routes/user.ts` split into `auth.ts`, `orgs.ts`, `agents.ts` (L8 §9).
+- Migration v2: `orgs.dek_wrapped`, `invitations`, `watched_addresses`, role `afr_app`, `afr_org()`, RLS policies on every tenant table. Every org-scoped route runs inside `inOrg`.
+- Routes: members (list/add/role/remove, owner rules, last owner kept), invitations (create, accept), `PATCH /v1/orgs/{org}`, `PATCH /v1/agents/{id}` (name, threshold, status), watched addresses, lanes, batches and checkpoints (cursored). All routes declare Zod body/params/query/response schemas.
+- SIWE: ERC-1271 / ERC-6492 through `siweClient` (viem `verifyMessage` action), only for the client's chain; RPC failure → 503, not 401. Signatures up to 8 KB.
+- §7 rate limits (session 20/s, nonce + login 10/min per IP, recorder 200/4 s per key after auth, 429 `RATE_LIMITED`), §8 helmet headers.
+- OpenAPI 3.1 → `packages/client/openapi.json` (drift test in `apps/api/test/openapi.test.ts`, regenerate with `AFR_UPDATE_OPENAPI=1`) → `src/schema.ts` (`pnpm --filter @afr/client generate`, drift test) → `createAfrClient` (openapi-fetch, CSRF header on mutations).
+- Fixed in passing: three routes sent their response before COMMIT (invitation, recorder key, watched address); all now reply after the transaction.
+- Tests: 16 API (+ RLS isolation without WHERE and RLS-refused cross-org insert, members, invitations, PATCH, watched addresses, read cursors, rate limits, headers), ERC-1271 on anvil (`AFR_ANVIL_URL`, mock wallet in `apps/api/test/fixtures`, contracts/ untouched), KMS on LocalStack (`AFR_KMS_ENDPOINT`), 3 client. Root `test` now runs `--concurrency=50%` like build/typecheck: the full suite oversubscribed 4 cores and unrelated tests timed out. `pnpm verify` green with all three env vars.
+- shortcuts: in-memory rate-limit counters (per instance; Redis store when the API scales out); DEK cache never evicts; no invitation list/revoke routes or email delivery; auditors see every agent (no assignment table yet); privacy/retention changes still need the signed-profile flow; `users` has no RLS (not tenant data); no CORS plugin (dashboard is same-origin for now); no ERC-6492 counterfactual test (viem handles it; needs a factory fixture); data sealed under the old single master key (only test DBs) can't be opened.
+- Next: P2-15 (mirror mode).
 
 ### 2026-11-04: P2-14 recorder outbox → API
 - `@afr/crypto` (additive): `RECORDER_KEY_RE`, `recorderStringToSign`, `recorderSecretHash`, `signRecorderRequest`, moved from `apps/api` so the recorder and the API share one signer (the API re-exports them).
@@ -36,7 +49,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
   - Tenancy: membership checked on every route, 404 for other orgs; writes need owner/admin/engineer; audit log on mutations. Strict Zod schemas reject unknown fields; error bodies never echo input; 5xx logged by code + route only.
 - Recorder auth (§2, made exact in L8): `signRecorderRequest`/`checkRecorderRequest`; HMAC key = sha256(secret).
 - Tests (`apps/api/test/api.test.ts`, needs `AFR_PG_URL`, own schema per run): SIWE + nonce reuse + CSRF; watch key wrapped, secret not stored, cross-org 404; P2 (stale > 5 min, body tamper, wrong secret, revoked key, wrong lane); P5 (duplicate checkpoint → one row, intents/delegations idempotent); config ETag; plaintext guard. Green on the compose PG; `pnpm verify` green.
-- shortcuts: no members/invitations/PATCH agents/watched addresses/lanes/batches GET routes yet; no RLS (query-layer tenancy only); EOA-only SIWE (no ERC-1271); one local master key instead of KMS envelopes; no rate limits or helmet; no OpenAPI/client generation (P7 test); config `readers` is always [] until §4.7.
+- shortcuts (most closed by the hardening entry above): config `readers` is always [] until §4.7.
 - Next: P2-14 (recorder outbox → API).
 
 ### 2026-11-04: P2-12 delegations + agent profile before batches
