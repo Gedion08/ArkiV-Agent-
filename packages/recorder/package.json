@@ -24,6 +24,7 @@
     "@afr/core": "workspace:*",
     "@afr/crypto": "workspace:*",
     "@afr/log": "workspace:*",
+    "@afr/store": "workspace:*",
     "better-sqlite3": "13.0.3",
     "viem": "2.57.7",
     "yaml": "2.9.1",

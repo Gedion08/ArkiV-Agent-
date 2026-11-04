@@ -8,6 +8,7 @@ import {
   isLocalAgentId,
   localSigner,
   parseAgentId,
+  type StatementType,
   type SyncSigner,
   typedData,
   verifyTyped,
@@ -36,6 +37,8 @@ export interface SessionKey {
   delegationHash: Hex;
   /** Resolves with the operator's (or identity key's) signature; may stay pending in interactive mode. */
   delegationSig: Promise<{ sig: Hex; signer: Hex }>;
+  /** EIP-712 statements within the delegation's scope (e.g. KeyGrant, scope bit 4), identity-chain domain. */
+  signStatement(primaryType: StatementType, message: Record<string, unknown>): Promise<Hex>;
 }
 
 /** Interactive mode: show the typed data to a human, resolve with their signature. */
@@ -95,7 +98,8 @@ export class KeyManager {
   /** Creates a fresh in-memory session key and requests its delegation. */
   newSession(): SessionKey {
     const { random, delegation: cfg } = this.#o;
-    const signer = localSigner(bytesToHex(random(32)));
+    const privateKey = bytesToHex(random(32));
+    const signer = localSigner(privateKey);
     const nowS = BigInt(Math.floor((this.#o.now ?? Date.now)() / 1000));
     const delegation: DelegationMessage = {
       agentKey: agentKey(this.#o.agentId),
@@ -137,6 +141,10 @@ export class KeyManager {
       delegation,
       delegationHash,
       delegationSig,
+      signStatement: (primaryType, message) =>
+        privateKeyToAccount(privateKey).signTypedData(
+          typedData(this.#chainId, primaryType, message) as never,
+        ),
     };
   }
 }

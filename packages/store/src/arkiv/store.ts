@@ -67,7 +67,10 @@ export class ArkivStore implements EvidenceStore {
   readonly #reqs = new Map<Hex, PutRequest>();
   #closed = false;
 
-  constructor(readonly o: ArkivStoreOptions) {}
+  readonly o: ArkivStoreOptions;
+  constructor(o: ArkivStoreOptions) {
+    this.o = o;
+  }
 
   get writer() {
     return this.o.queue.address;
@@ -234,7 +237,7 @@ export class ArkivStore implements EvidenceStore {
     });
     const writers = q.createdBy?.map(lc);
     // shortcut: offset paging (S7: correct, ordered) without block pinning (SDK 1.0.1 exposes no
-    // atBlock); keyset pagination by seq_from lives in listBatches (P2-09).
+    // atBlock); keyset pagination by seq_from is listBatches (evidence.ts).
     for (let offset = 0; ; offset += pageSize) {
       // Schema-generic: our attrs are typed by SCHEMA_SPEC, not the SDK's per-schema generics.
       let b = this.o.publicClient.select("*").from(ARKIV_SCHEMAS[q.schema]) as unknown as Builder;

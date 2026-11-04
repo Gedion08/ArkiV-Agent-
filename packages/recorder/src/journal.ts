@@ -5,7 +5,8 @@ import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { Worker } from "node:worker_threads";
 import { AfrError, type RecordBodyV1, type RecordHeaderV1, ZERO_HASH } from "@afr/core";
-import { aesGcmOpen } from "@afr/crypto";
+import { aesGcmOpen, type EpochKek, openAtRest, sealAtRest } from "@afr/crypto";
+import type { WriteEntry, WriteJournal } from "@afr/store";
 import Database from "better-sqlite3";
 import { concat, type Hex, numberToBytes, stringToBytes, toBytes } from "viem";
 
@@ -51,6 +52,12 @@ const MIGRATIONS: string[] = [
      epoch_id INTEGER PRIMARY KEY, kek_id TEXT NOT NULL, kek_sealed BLOB NOT NULL,
      readers_json TEXT NOT NULL, grants_published INTEGER NOT NULL DEFAULT 0,
      created_at INTEGER NOT NULL, rotated_at INTEGER);`,
+  // v2 (P2-10): the WriterQueue's durable write journal (L3 §7), one row per write id
+  `CREATE TABLE writes (
+     id TEXT PRIMARY KEY, state TEXT NOT NULL, predicted_key TEXT, tx_hash TEXT, nonce INTEGER,
+     signed BLOB, reason TEXT, updated_at INTEGER NOT NULL);
+   ALTER TABLE epochs ADD COLUMN wraps INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE epochs ADD COLUMN granted_json TEXT NOT NULL DEFAULT '[]';`,
 ];
 
 export interface SessionKeyRow {
@@ -90,6 +97,47 @@ export interface JournalOptions {
   durability?: "normal" | "strict";
   random: (n: number) => Uint8Array;
   now?: () => number;
+}
+
+export type BatchState =
+  | "sealed"
+  | "prepared"
+  | "submitting"
+  | "receipt_confirmed"
+  | "verified"
+  | "notified"
+  | "anchored"
+  | "pruned"
+  | "failed";
+
+export interface EpochRow {
+  epochId: number;
+  kekId: Hex;
+  /** Reader X25519 public keys (32-byte lowercase hex). */
+  readers: Hex[];
+  /** Readers with a confirmed keygrant for this epoch. */
+  granted: Hex[];
+  grantsPublished: boolean;
+  wraps: number;
+  rotatedAt?: number;
+}
+
+export interface SealedBatchRow {
+  seqFrom: bigint;
+  seqTo: bigint;
+  frame: Uint8Array;
+  batchRoot: Hex;
+  prevChainRoot: Hex;
+  chainRoot: Hex;
+}
+
+export interface BatchRow extends SealedBatchRow {
+  state: BatchState;
+  predictedKey?: Hex;
+  entityKey?: Hex;
+  txHash?: Hex;
+  attempts: number;
+  lastError?: string;
 }
 
 interface RecordRow {
@@ -213,8 +261,8 @@ export class Journal {
       : undefined;
   }
 
-  /** One SQLite transaction: the record is either fully journaled or absent. */
-  appendRecord(r: AppendInput): void {
+  /** One SQLite transaction: the record is either fully journaled or absent. Returns the body's byte size. */
+  appendRecord(r: AppendInput): number {
     if (r.seq > BigInt(Number.MAX_SAFE_INTEGER))
       throw new AfrError("SEQ_OVERFLOW", "seq exceeds 2^53");
     const seq = Number(r.seq);
@@ -233,6 +281,7 @@ export class Journal {
       r.sessionKey,
       this.#now(),
     );
+    return pt.length;
   }
 
   *iterate(fromSeq = 0n, pageSize = 1000): Generator<JournalRecord> {
@@ -269,10 +318,253 @@ export class Journal {
     return JSON.parse(new TextDecoder().decode(pt)) as RecordBodyV1;
   }
 
+  // ---------- batches (L2 §4 state machine) ----------
+
+  /** Chain tip of the batch chain: next unbatched seq and the last chain_root. */
+  batchTip(): { nextSeq: bigint; chainRoot: Hex } {
+    const r = this.#db
+      .prepare("SELECT seq_to, chain_root FROM batches ORDER BY seq_from DESC LIMIT 1")
+      .get() as { seq_to: number; chain_root: Hex } | undefined;
+    return r
+      ? { nextSeq: BigInt(r.seq_to) + 1n, chainRoot: r.chain_root }
+      : { nextSeq: 0n, chainRoot: ZERO_HASH };
+  }
+
+  /** Sealed batches and their records' batch assignment, in one transaction. */
+  insertBatches(rows: SealedBatchRow[]): void {
+    const ins = this.#db.prepare(
+      `INSERT INTO batches (seq_from, seq_to, state, frame, batch_root, prev_chain_root, chain_root, created_at, updated_at)
+       VALUES (?, ?, 'sealed', ?, ?, ?, ?, ?, ?)`,
+    );
+    const assign = this.#db.prepare(
+      "UPDATE records SET batch_seq_from = ? WHERE seq BETWEEN ? AND ?",
+    );
+    const now = this.#now();
+    this.#db.transaction(() => {
+      for (const b of rows) {
+        const [from, to] = [Number(b.seqFrom), Number(b.seqTo)];
+        ins.run(
+          from,
+          to,
+          Buffer.from(b.frame),
+          b.batchRoot,
+          b.prevChainRoot,
+          b.chainRoot,
+          now,
+          now,
+        );
+        assign.run(from, from, to);
+      }
+    })();
+  }
+
+  /** Lowest batch not yet `verified` (or later), i.e. the next one the uploader must drive. */
+  nextUnverifiedBatch(): BatchRow | undefined {
+    const r = this.#db
+      .prepare(
+        "SELECT * FROM batches WHERE state IN ('sealed','prepared','submitting','receipt_confirmed','failed') ORDER BY seq_from LIMIT 1",
+      )
+      .get() as Record<string, unknown> | undefined;
+    return r && toBatch(r);
+  }
+
+  batch(seqFrom: bigint): BatchRow | undefined {
+    const r = this.#db.prepare("SELECT * FROM batches WHERE seq_from = ?").get(Number(seqFrom)) as
+      | Record<string, unknown>
+      | undefined;
+    return r && toBatch(r);
+  }
+
+  batchCounts(): Partial<Record<BatchState, number>> {
+    const rows = this.#db
+      .prepare("SELECT state, COUNT(*) AS n FROM batches GROUP BY state")
+      .all() as {
+      state: BatchState;
+      n: number;
+    }[];
+    return Object.fromEntries(rows.map((r) => [r.state, r.n]));
+  }
+
+  updateBatch(
+    seqFrom: bigint,
+    u: { state: BatchState } & Partial<
+      Pick<BatchRow, "predictedKey" | "entityKey" | "txHash" | "attempts" | "lastError">
+    >,
+  ): void {
+    this.#db
+      .prepare(
+        `UPDATE batches SET state = ?, predicted_key = COALESCE(?, predicted_key), entity_key = COALESCE(?, entity_key),
+           tx_hash = COALESCE(?, tx_hash), attempts = COALESCE(?, attempts), last_error = ?, updated_at = ? WHERE seq_from = ?`,
+      )
+      .run(
+        u.state,
+        u.predictedKey ?? null,
+        u.entityKey ?? null,
+        u.txHash ?? null,
+        u.attempts ?? null,
+        u.lastError ?? null,
+        this.#now(),
+        Number(seqFrom),
+      );
+  }
+
+  // ---------- epochs (L4 §2, §7.4) ----------
+
+  /** Persists a new epoch; the KEK is sealed under the journal key, bound to its kek_id. */
+  putEpoch(kek: EpochKek, readers: Hex[]): void {
+    const sealed = sealAtRest(this.#key, kek.key, toBytes(kek.kekId), this.#random);
+    this.#db
+      .prepare(
+        "INSERT INTO epochs (epoch_id, kek_id, kek_sealed, readers_json, grants_published, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        kek.epochId,
+        kek.kekId,
+        Buffer.from(sealed),
+        JSON.stringify(readers),
+        readers.length ? 0 : 1,
+        this.#now(),
+      );
+  }
+
+  latestEpoch(): EpochRow | undefined {
+    const r = this.#db.prepare("SELECT * FROM epochs ORDER BY epoch_id DESC LIMIT 1").get() as
+      | Record<string, unknown>
+      | undefined;
+    return r && toEpoch(r);
+  }
+
+  epoch(epochId: number): EpochRow | undefined {
+    const r = this.#db.prepare("SELECT * FROM epochs WHERE epoch_id = ?").get(epochId) as
+      | Record<string, unknown>
+      | undefined;
+    return r && toEpoch(r);
+  }
+
+  epochKek(epochId: number): EpochKek {
+    const r = this.#db
+      .prepare("SELECT kek_id, kek_sealed FROM epochs WHERE epoch_id = ?")
+      .get(epochId) as { kek_id: Hex; kek_sealed: Buffer } | undefined;
+    if (!r) throw new AfrError("EPOCH_NOT_FOUND", `no epoch ${epochId}`);
+    const key = openAtRest(this.#key, new Uint8Array(r.kek_sealed), toBytes(r.kek_id));
+    return { epochId, kekId: r.kek_id, key };
+  }
+
+  /** Reader set of an epoch; grants_published = every reader has a confirmed keygrant. */
+  setEpochReaders(epochId: number, readers: Hex[]): void {
+    const e = this.epoch(epochId);
+    if (!e) throw new AfrError("EPOCH_NOT_FOUND", `no epoch ${epochId}`);
+    const done = readers.every((r) => e.granted.includes(r));
+    this.#db
+      .prepare("UPDATE epochs SET readers_json = ?, grants_published = ? WHERE epoch_id = ?")
+      .run(JSON.stringify(readers), done ? 1 : 0, epochId);
+  }
+
+  markReaderGranted(epochId: number, reader: Hex): void {
+    const e = this.epoch(epochId);
+    if (!e) throw new AfrError("EPOCH_NOT_FOUND", `no epoch ${epochId}`);
+    const granted = [...new Set([...e.granted, reader])];
+    const done = e.readers.every((r) => granted.includes(r));
+    this.#db
+      .prepare("UPDATE epochs SET granted_json = ?, grants_published = ? WHERE epoch_id = ?")
+      .run(JSON.stringify(granted), done ? 1 : 0, epochId);
+  }
+
+  epochsAwaitingGrants(): EpochRow[] {
+    return (
+      this.#db
+        .prepare("SELECT * FROM epochs WHERE grants_published = 0 ORDER BY epoch_id")
+        .all() as Record<string, unknown>[]
+    ).map(toEpoch);
+  }
+
+  markRotated(epochId: number): void {
+    this.#db
+      .prepare("UPDATE epochs SET rotated_at = ? WHERE epoch_id = ?")
+      .run(this.#now(), epochId);
+  }
+
+  addWraps(epochId: number, n: number): void {
+    this.#db.prepare("UPDATE epochs SET wraps = wraps + ? WHERE epoch_id = ?").run(n, epochId);
+  }
+
+  /** Durable WriterQueue journal (L3 §7): each `set` commits with synchronous=FULL (fsync before broadcast). */
+  writeJournal(): WriteJournal {
+    const db = this.#db;
+    const get = db.prepare("SELECT * FROM writes WHERE id = ?");
+    const put = db.prepare(
+      `INSERT INTO writes (id, state, predicted_key, tx_hash, nonce, signed, reason, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET state = excluded.state, predicted_key = excluded.predicted_key, tx_hash = excluded.tx_hash,
+         nonce = excluded.nonce, signed = excluded.signed, reason = excluded.reason, updated_at = excluded.updated_at`,
+    );
+    const normal = db.pragma("synchronous", { simple: true });
+    return {
+      get: async (id) => {
+        const r = get.get(id) as Record<string, unknown> | undefined;
+        if (!r) return undefined;
+        return {
+          id: r.id as Hex,
+          state: r.state as WriteEntry["state"],
+          ...(r.predicted_key ? { predictedKey: r.predicted_key as Hex } : {}),
+          ...(r.tx_hash ? { txHash: r.tx_hash as Hex } : {}),
+          ...(r.nonce !== null ? { nonce: r.nonce as number } : {}),
+          ...(r.signed ? { signed: r.signed as Hex } : {}),
+          ...(r.reason ? { reason: r.reason as string } : {}),
+        };
+      },
+      set: async (e) => {
+        db.pragma("synchronous = FULL");
+        try {
+          put.run(
+            e.id,
+            e.state,
+            e.predictedKey ?? null,
+            e.txHash ?? null,
+            e.nonce ?? null,
+            e.signed ?? null,
+            e.reason ?? null,
+            this.#now(),
+          );
+        } finally {
+          db.pragma(`synchronous = ${normal}`);
+        }
+      },
+    };
+  }
+
   close(): void {
     this.#db.close();
     void this.#checkpointer.terminate();
   }
+}
+
+function toEpoch(r: Record<string, unknown>): EpochRow {
+  return {
+    epochId: r.epoch_id as number,
+    kekId: r.kek_id as Hex,
+    readers: JSON.parse(r.readers_json as string) as Hex[],
+    granted: JSON.parse(r.granted_json as string) as Hex[],
+    grantsPublished: r.grants_published === 1,
+    wraps: r.wraps as number,
+    ...(r.rotated_at !== null ? { rotatedAt: r.rotated_at as number } : {}),
+  };
+}
+
+function toBatch(r: Record<string, unknown>): BatchRow {
+  return {
+    seqFrom: BigInt(r.seq_from as number),
+    seqTo: BigInt(r.seq_to as number),
+    state: r.state as BatchState,
+    frame: new Uint8Array(r.frame as Buffer),
+    batchRoot: r.batch_root as Hex,
+    prevChainRoot: r.prev_chain_root as Hex,
+    chainRoot: r.chain_root as Hex,
+    ...(r.predicted_key ? { predictedKey: r.predicted_key as Hex } : {}),
+    ...(r.entity_key ? { entityKey: r.entity_key as Hex } : {}),
+    ...(r.tx_hash ? { txHash: r.tx_hash as Hex } : {}),
+    attempts: r.attempts as number,
+    ...(r.last_error ? { lastError: r.last_error as string } : {}),
+  };
 }
 
 function aad(seq: bigint, hash: Hex): Uint8Array {

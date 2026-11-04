@@ -3,7 +3,14 @@
 import { EVIDENCE_LOCK_ADDRESS } from "@afr/core";
 import type { Hex } from "viem";
 import { describe, expect, test } from "vitest";
-import type { AttrsOf, EvidenceStore, Expiry, PutRequest, StoredEntity } from "../src/index.js";
+import {
+  type AttrsOf,
+  type EvidenceStore,
+  type Expiry,
+  listBatches,
+  type PutRequest,
+  type StoredEntity,
+} from "../src/index.js";
 
 export interface ConformanceStore extends EvidenceStore {
   /** Owner-side patch/delete attempts (AFR never does this; the cases prove it can't succeed). */
@@ -146,6 +153,11 @@ export function conformance(name: string, make: () => Promise<Harness>) {
       expect(got.map((e) => e.attrs.seq_from)).toEqual(
         Array.from({ length: count }, (_, i) => BigInt(i * 10)),
       );
+      // P2-09: keyset listBatches (small pages exercise the cut + eq path) sees the same entities
+      const listed = await collect(
+        listBatches(h.a, { agentKey: agent, lane: 0n, writers: [h.writerA], pageSize: 7 }),
+      );
+      expect(listed.map((e) => e.ref.key)).toEqual(got.map((e) => e.ref.key));
     });
 
     test("C6 createdBy excludes entities from other writers", async () => {

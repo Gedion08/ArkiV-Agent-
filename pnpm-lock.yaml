@@ -320,6 +320,9 @@ importers:
       '@afr/log':
         specifier: workspace:*
         version: link:../log
+      '@afr/store':
+        specifier: workspace:*
+        version: link:../store
       better-sqlite3:
         specifier: 13.0.3
         version: 13.0.3

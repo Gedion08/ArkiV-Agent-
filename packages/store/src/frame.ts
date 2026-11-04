@@ -8,6 +8,8 @@ import {
   BatchPublicV1Schema,
   LIMITS,
   PADDING_BUCKETS,
+  type RecordBodyV1,
+  RecordBodyV1Schema,
 } from "@afr/core";
 import { Encoder } from "cbor-x";
 import { deflateSync, inflateSync } from "fflate";
@@ -35,21 +37,29 @@ function keyOrder(a: string, b: string) {
   return 0;
 }
 
-/** Deep copy with sorted map keys; rejects values without a single deterministic encoding. */
-function canonical(v: unknown, path: string): unknown {
-  if (v instanceof Uint8Array) return v;
-  if (Array.isArray(v)) return v.map((x, i) => canonical(x, `${path}[${i}]`));
+/**
+ * Deep copy with sorted map keys; rejects values without a single deterministic encoding. `json`
+ * (record bodies: arbitrary tool/model JSON) also admits null and any finite number; cbor-x then
+ * picks int/float32/float64 per value, deterministic for the pinned version and lossless on decode.
+ */
+function canonical(v: unknown, path: string, json: boolean): unknown {
+  if (v instanceof Uint8Array && !json) return v;
+  if (Array.isArray(v)) return v.map((x, i) => canonical(x, `${path}[${i}]`, json));
   if (typeof v === "string" || typeof v === "boolean") return v;
+  if (v === null && json) return v;
   if (typeof v === "number") {
-    if (!Number.isInteger(v) || v < 0 || v > 0xffff_ffff)
-      fail("FRAME_INVALID", `${path}: only uint32 numbers are allowed`);
+    if (json ? !Number.isFinite(v) : !Number.isInteger(v) || v < 0 || v > 0xffff_ffff)
+      fail(
+        "FRAME_INVALID",
+        `${path}: ${json ? "non-finite number" : "only uint32 numbers are allowed"}`,
+      );
     return v;
   }
   if (v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype) {
     const out: Record<string, unknown> = {};
     for (const k of Object.keys(v).sort(keyOrder)) {
       const x = (v as Record<string, unknown>)[k];
-      if (x !== undefined) out[k] = canonical(x, `${path}.${k}`);
+      if (x !== undefined) out[k] = canonical(x, `${path}.${k}`, json);
     }
     return out;
   }
@@ -57,7 +67,7 @@ function canonical(v: unknown, path: string): unknown {
 }
 
 export const encodeCanonical = (v: unknown): Uint8Array =>
-  new Uint8Array(cbor.encode(canonical(v, "$")));
+  new Uint8Array(cbor.encode(canonical(v, "$", false)));
 
 function decode(bytes: Uint8Array, what: string): unknown {
   try {
@@ -111,7 +121,7 @@ export function packPlaintext(p: BatchPlaintext, opts: { padding: boolean }): Ui
   if (p.headers.length !== p.bodies.length)
     fail("FRAME_INVALID", "headers and bodies differ in length");
   const raw = encodeCanonical({ headers: p.headers, bodies: p.bodies });
-  return pad(deflateSync(raw, { level: 9 }), opts.padding);
+  return pad(deflateSync(raw), opts.padding);
 }
 
 export function unpackPlaintext(padded: Uint8Array): BatchPlaintext {
@@ -138,6 +148,20 @@ export function unpackPlaintext(padded: Uint8Array): BatchPlaintext {
   )
     fail("FRAME_INVALID", "plaintext is not {headers: string[], bodies: bytes[]}");
   return { headers: headers as string[], bodies: bodies as Uint8Array[] };
+}
+
+/** Decodes a canonical CBOR payload (keygrant, statement). The result is untrusted data. */
+export const decodeCanonical = (bytes: Uint8Array): unknown => decode(bytes, "payload");
+
+/** CBOR(RecordBodyV1) for the plaintext `bodies` array (sorted keys, JSON values). */
+export const encodeBody = (body: RecordBodyV1): Uint8Array =>
+  new Uint8Array(cbor.encode(canonical(body, "$", true)));
+
+/** Decrypted data is untrusted: the result is schema-checked, never interpreted. */
+export function decodeBody(bytes: Uint8Array): RecordBodyV1 {
+  const r = RecordBodyV1Schema.safeParse(decode(bytes, "body"));
+  if (!r.success) return fail("FRAME_INVALID", "body is not a valid RecordBodyV1");
+  return r.data as RecordBodyV1;
 }
 
 // ---------- frame ----------

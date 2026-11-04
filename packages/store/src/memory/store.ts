@@ -67,11 +67,16 @@ export class MemoryStore implements EvidenceStore {
   readonly #fail: InjectedFailure[] = [];
   #closed = false;
 
-  constructor(
-    readonly chain: MemoryChain,
-    readonly writer: Hex,
-    readonly privacyLevel: PrivacyLevel = 0,
-  ) {}
+  // plain fields, not parameter properties: Node's type stripping (recorder crash test) rejects those
+  readonly chain: MemoryChain;
+  readonly writer: Hex;
+  readonly privacyLevel: PrivacyLevel;
+
+  constructor(chain: MemoryChain, writer: Hex, privacyLevel: PrivacyLevel = 0) {
+    this.chain = chain;
+    this.writer = writer;
+    this.privacyLevel = privacyLevel;
+  }
 
   /** Inject a failure into the next write (put → await). */
   failNext(kind: InjectedFailure) {

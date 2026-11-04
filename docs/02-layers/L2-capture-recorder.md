@@ -177,11 +177,18 @@ CREATE TABLE outbox (
   next_attempt_at INTEGER NOT NULL, created_at INTEGER NOT NULL
 );
 
+CREATE TABLE writes (                               -- v2: WriterQueue durable journal (L3 §7), synchronous=FULL per write
+  id TEXT PRIMARY KEY, state TEXT NOT NULL, predicted_key TEXT, tx_hash TEXT, nonce INTEGER,
+  signed BLOB, reason TEXT, updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE epochs (
   epoch_id INTEGER PRIMARY KEY, kek_id TEXT NOT NULL,
   kek_sealed BLOB NOT NULL,                         -- KEK sealed by KeyStore (KMS/OS keystore/passphrase)
   readers_json TEXT NOT NULL, grants_published INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL, rotated_at INTEGER
+  created_at INTEGER NOT NULL, rotated_at INTEGER,
+  wraps INTEGER NOT NULL DEFAULT 0,                 -- v2: DEKs wrapped (rotate before 2^20, L4 §4)
+  granted_json TEXT NOT NULL DEFAULT '[]'           -- v2: readers with a confirmed keygrant; grants_published = readers ⊆ granted
 );
 ```
 
@@ -376,7 +383,9 @@ Redaction runs **before** commitment, so redacted secrets never exist in evidenc
 ## 9. Batcher and uploader
 
 - **Close triggers:** age ≥ `batch.max_age_ms` (5 s) **or** estimated frame size ≥ `batch.target_bytes` (96 KiB) **or** record count ≥ 1,000 **or** explicit `flush()`/`close()`. At privacy 0 with `heartbeat: true`, when nothing happened for `heartbeat_ms` the recorder captures a `note` record with `meta.event = "heartbeat"` and closes a one-record batch. Batches are never empty.
-- **Size estimation:** keep a running compressed-size estimate. If the final frame exceeds `BATCH_MAX_FRAME_BYTES`, split at the midpoint and retry (recursive). A single record > max frame (pathological) gets its body truncated harder, and the event is noted.
+- **Size estimation:** keep a running size estimate (uncompressed header + body + ≈ 230 B of public section per record, an upper bound since deflate only shrinks). Sealing pre-chunks greedily by that estimate. If a frame still exceeds `BATCH_MAX_FRAME_BYTES`, split near the midpoint and retry (recursive). A single record > max frame (pathological) gets its body truncated harder (header commitments still cover the full values), and the event is logged (`BODY_TRUNCATED_FOR_FRAME`).
+- **Signable cuts:** `batch_sig` is made by the key that signed the batch's last record (L1 §5.3), and session keys never outlive their process. So a batch, and every split part, ends on a record whose key the recorder still holds. After a crash the unbatched tail waits for the new `session_start`. A tail too large for one frame with no earlier signable record fails with `BATCH_UNSIGNABLE` (open question, PROGRESS 2026-11-04).
+- **Idempotency:** one store idempotency key per (batch_id, attempt). Only a proven revert (`failed`) bumps the attempt; every uncertain outcome reconciles instead.
 - **Upload:** one writer queue per writer account (L3 §7). Ordering: batch N+1 may be **prepared** while N is in flight, but **submitted** only after N reaches `receipt_confirmed` (nonce ordering and chain-root ordering).
 - **Backpressure:** if pending batches exceed `max_pending_bytes` (default 1 GiB), log a warning and raise the `afr_store_lag_seconds` alert. The agent is never blocked.
 - **Delegations first:** a batch is never submitted before the delegation entity for every session key in it is `verified`.

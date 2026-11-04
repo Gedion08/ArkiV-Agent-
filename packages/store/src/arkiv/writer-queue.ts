@@ -86,7 +86,10 @@ export class WriterQueue {
   #current: WriteEntry | undefined;
   #reserved = 0n;
 
-  constructor(readonly o: WriterQueueOptions) {
+  readonly o: WriterQueueOptions;
+
+  constructor(o: WriterQueueOptions) {
+    this.o = o;
     this.address = o.account.address;
     const transport = custom(
       {

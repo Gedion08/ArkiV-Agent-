@@ -88,7 +88,7 @@ grant = CBOR({ enc, ct, statement: KeyGrant{agentKey, epochId, kekId, reader, en
 
 - `sig`: EIP-712 `KeyGrant` signed by the operator (dashboard grants) **or** by a session key with scope bit 4 (automatic recorder grants for configured readers).
 - **Flags:** readonly, **not locked**, **no permissionless extension.** The writer can delete it for crypto-shredding (§8).
-- Recorder behaviour: when an epoch starts, generate the KEK and publish one keygrant per reader in `encryption.readers`, **before** the first batch of that epoch is submitted.
+- Recorder behaviour: when an epoch starts, generate the KEK and publish one keygrant per reader in `encryption.readers`, **before** the first batch of that epoch is submitted. The uploader is gated per batch on `epochs.grants_published` of its `epoch_id`; without an HPKE sealer, configured readers hold uploads back (`KEYGRANT_UNAVAILABLE`, the agent is never blocked). One keygrant entity per (agent, epoch, reader): idempotency key `keccak(abi.encode("afr.keygrant", agent_key, epoch_id, reader))`. The KEK is stored sealed under the journal key, AAD = kek_id (`epochs.kek_sealed`).
 
 ## 6. Reader keys [NORMATIVE]
 
@@ -123,7 +123,7 @@ ReaderKey EIP-712 { owner: address, x25519: bytes32, label: string, notAfter: ui
 
 ### 7.4 Rotation triggers
 
-Month boundary (UTC), reader removed, 2^20 DEK wraps, suspected KEK compromise (manual `fr keys rotate-epoch`).
+Month boundary (UTC), reader removed, 2^20 DEK wraps (the recorder rotates 4,096 wraps early, since one seal may wrap many DEKs), suspected KEK compromise (manual `fr keys rotate-epoch`). A rotation within the month is `rotation += 1` (≤ 15, `epochIdFor`); already-sealed batches keep their epoch.
 
 ## 8. Crypto-shredding (erasure, v1)
 

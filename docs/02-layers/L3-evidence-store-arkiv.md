@@ -106,7 +106,8 @@ Typed helpers (`packages/store/src/evidence.ts`):
 putBatch(store, frame: BatchFrame, opts): Promise<PendingWrite>
 putDelegation(store, d: SignedDelegation, opts)
 putRevocation(...); putKeygrant(...); putCheckpoint(...); putAnchorManifest(...); putAttestation(...); putReaderKey(...); putAgentProfile(...)
-listBatches(store, agentKey, lane, fromSeq, writers): AsyncIterable<StoredEntity<"afr.batch.v1">>
+listBatches(store, { agentKey, lane, fromSeq?, writers?, pageSize? }): AsyncIterable<StoredEntity<"afr.batch.v1">>   // §8
+groupDuplicates(batches, isValid): Promise<{ batches, equivocations: { code: "EQUIVOCATION", lane, seqFrom, keys }[] }>  // §8
 listDelegations(store, agentKey), listRevocations(...), listKeygrants(store, agentKey, reader), latestCheckpoint(store, agentKey, lane), listAttestations(store, agentKey)
 ```
 
@@ -123,7 +124,8 @@ frame = CBOR( {                                   // cbor-x, deterministic (cano
 
 plaintext_of_ct = pad( deflateRaw( CBOR( {
   "headers": [ RecordHeaderV1 JCS strings ... ],  // the exact JCS strings that were hashed
-  "bodies":  [ CBOR(RecordBodyV1) ... ]           // index-aligned with headers
+  "bodies":  [ CBOR(RecordBodyV1) ... ]           // index-aligned with headers; same key sort, but JSON values allowed
+                                                  // (null, negative and fractional numbers: tool/model payloads)
 } ) ), bucket )
 
 pad(x, bucket) = u32be(len(x)) ‖ x ‖ zeros(bucket − 4 − len(x))
@@ -317,22 +319,26 @@ verify():
 ## 8. Reading and pagination
 
 ```ts
-async function* listBatches(store, agentKey, lane, fromSeq, writers) {
+async function* listBatches(store, agentKey, lane, fromSeq, writers) {   // packages/store/src/evidence.ts
   let next = fromSeq;
   const seen = new Set<Hex>();               // duplicates (rollback re-creates, forgeries) can share a seq_from
   const pin = (await store.head()).block;
+  const q = (seqFrom) => store.query({
+    schema: "afr.batch.v1",
+    where: { agent_key: eq(agentKey), lane: eq(lane), seq_from: seqFrom },
+    createdBy: writers, orderBy: { attr: "seq_from", dir: "asc" }, pageSize: 100, atBlock: pin,
+  });
   while (true) {
-    const page = await collect(store.query({
-      schema: "afr.batch.v1",
-      where: { agent_key: eq(agentKey), lane: eq(lane), seq_from: gte(next) },
-      createdBy: writers, orderBy: { attr: "seq_from", dir: "asc" }, pageSize: 100, atBlock: pin,
-    }));
-    const fresh = page.filter((b) => !seen.has(b.ref.key));
-    if (!fresh.length) return;               // only already-seen entities → done (also guards against infinite loops)
-    for (const b of fresh) { seen.add(b.ref.key); yield b; next = max(next, b.attrs.seq_to + 1n); }
-    if (page.length < 100) return;
+    const page = first(100, q(gte(next)));
+    if (page.length < 100) { yield* unseen(page); return; }
+    // A full page is cut at its last seq_from, which is then read exhaustively: duplicates that
+    // straddle the page boundary, or more than a page of spam at one seq_from, can't be skipped or stall.
+    const cut = page.at(-1).attrs.seq_from;
+    yield* unseen(page.filter((b) => b.attrs.seq_from < cut));
+    yield* unseen(q(eq(cut)));
+    next = cut + 1n;
   }
-  // Batches are never empty (L1 §5.1), so next always advances. The caller groups duplicates by seq_from (equivocation check).
+  // The caller groups duplicates by seq_from (equivocation check: groupDuplicates).
 }
 ```
 

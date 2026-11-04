@@ -28,7 +28,10 @@ export function normalizeMeta(
   return out;
 }
 
-export type TxInput = Omit<TxInfo, "data_commit" | "chain_id" | "nonce" | "value"> & {
+export type TxInput = Omit<
+  TxInfo,
+  "data_commit" | "chain_id" | "nonce" | "value" | "value_usd_cents"
+> & {
   chain_id: string | bigint | number;
   nonce: string | bigint | number;
   value: string | bigint | number;

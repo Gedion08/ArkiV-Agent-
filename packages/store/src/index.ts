@@ -5,6 +5,7 @@ export * from "./arkiv/client.js";
 export * from "./arkiv/errors.js";
 export * from "./arkiv/store.js";
 export * from "./arkiv/writer-queue.js";
+export * from "./evidence.js";
 export * from "./frame.js";
 export * from "./memory/store.js";
 export * from "./privacy.js";
