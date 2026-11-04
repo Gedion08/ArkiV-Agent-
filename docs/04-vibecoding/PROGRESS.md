@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified) | Next: P3-04 (identity). |
+| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓ | Next: P3-05 (apps/anchor). |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -17,6 +17,21 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P3-04 `packages/identity` (ERC-8004 adapter)
+- Sources: `src/abis/README.md`. Repo erc-8004/erc-8004-contracts `b9e466c` (2026-08-15) and the Base docs. Checked on-chain: proxy, version 2.0.0, deploy block (SPIKES S11).
+- API (L5 §4.4):
+  - `resolveAgent`, `operatorAt`, `blockAtOrBefore`, `verifyOperatorSig`, `parseRegistration`, `findAfrService`, `buildRegistrationWithAfr`, `fetchUriJson`, `encodeRegister`, `encodeSetAgentURI`, `encodeValidationResponse`.
+  - Plus the ABIs and the `ERC8004_IDENTITY_REGISTRY` addresses.
+  - Deps: `@afr/core`, `viem` 2.57.7.
+- Deviation, with L5 §4.3 updated: `operatorAt` reads historical `ownerOf` at the last block ≤ ts instead of scanning Transfer logs. The public RPC allows 200-block log ranges, and the registry is 18M blocks old.
+  - Block search is exponential back from head, then bisection. Base Sepolia block times aren't constant, and old headers are pruned on the public RPC.
+- Tests:
+  - 11 unit tests: registration and afr checks, URI schemes, size cap, block search on an irregular chain with pruned history, calldata round-trips, CHAIN_MISMATCH.
+  - `identity.fork.test.ts` (A6 + A7) runs against the real registry on an anvil fork of Base Sepolia. It registers an agent, resolves it (afr entry, agentWallet), checks `operatorAt` before and after a transfer and before the mint, and checks that agentWallet clears on transfer. It then verifies ECDSA for the right operator per time and ERC-1271 via a mock 1271 wallet.
+- Not verified:
+  - A7 with a real Safe: the 1271 wallet is the test MockWallet.
+  - The fork test needs `BASE_SEPOLIA_RPC_URL` and skips without it, so CI skips it unless that is set.
 
 ### 2026-11-04: P3-03 CREATE2 deploy → Base Sepolia
 - `contracts/script/Deploy.s.sol`:

@@ -18,5 +18,9 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --root . --config ../../vitest.config.ts"
+  },
+  "dependencies": {
+    "@afr/core": "workspace:*",
+    "viem": "2.57.7"
   }
 }

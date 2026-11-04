@@ -206,20 +206,27 @@ Daily: for each agent with `expiry=rolling`, query batches/checkpoints with `$ex
 
 ```
 operatorAt(agentId, timestamp):
-  logs = Transfer(from, to, tokenId=agentId) from registry deploy block (cached)
-  return the `to` of the last Transfer with block.timestamp ≤ timestamp
+  block = the last block with block.timestamp ≤ timestamp   (exponential search back from head, then bisection)
+  return ownerOf(agentId) at that block                      (historical eth_call)
 ```
+
+Why not a Transfer-log scan: public RPCs cap `eth_getLogs` (Base Sepolia: 200 blocks), and the registry is tens of millions of blocks old (SPIKES S11). Historical `eth_call` gives the same answer, the owner at the end of that block. The RPC must serve state and headers back to the delegation's `notBefore`; otherwise the result is `RPC_HISTORY_UNAVAILABLE`, never a guess. Before the mint it's `AGENT_NOT_REGISTERED`.
 
 A delegation is valid only if its signer == `operatorAt(agentId, delegation.notBefore)`, **or** the signer is a recorder identity key whose parent delegation passes that test (L1 §7.1). Smart-contract owners (Safe): verify EIP-712 signatures through **ERC-1271** `isValidSignature` at the current block. A historic check isn't possible on most RPCs, so the verifier states this limit.
 
 ### 4.4 Public API
 
 ```ts
-resolveAgent(agentId, rpc): Promise<{ owner: Hex; uri: string; registration: Registration; afr?: AfrService; agentWallet?: Hex }>
-operatorAt(agentId, ts, rpc): Promise<Hex>
-verifyOperatorSig(agentId, typedData, sig, ts, rpc): Promise<{ ok: boolean; method: "ecdsa" | "erc1271"; note?: string }>
+resolveAgent(agentId, rpc, uriOpts?): Promise<{ owner: Hex; uri: string; registration: Registration; afr?: AfrService; agentWallet?: Hex }>
+operatorAt(agentId, ts, rpc): Promise<Hex>                       // ts: unix seconds (bigint)
+verifyOperatorSig(agentId, typedData, sig, ts, rpc): Promise<{ ok: boolean; method: "ecdsa" | "erc1271"; operator: Hex; note?: string }>
 buildRegistrationWithAfr(existing: Registration, afr: AfrService): Registration
 encodeRegister(...), encodeSetAgentURI(...), encodeValidationResponse(...)
+```
+
+- `rpc` is a viem public client and must be on the agent id's chain (`CHAIN_MISMATCH`).
+- Agent URIs: `data:application/json`, `https:` (no redirects), `ipfs:` only through a configured gateway. Plain `http:` is refused. Content is capped at 64 KiB and parsed as JSON, never executed.
+- `verifyOperatorSig` tries ECDSA first, then ERC-1271 at the current block when the operator has code (the `note` says so).
 ```
 
 ### 4.5 Watched-address sanity check
