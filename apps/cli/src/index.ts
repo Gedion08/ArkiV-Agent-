@@ -11,6 +11,7 @@ import {
   type NetDeps,
   proveCommand,
   UsageError,
+  updateRegistrationCommand,
   verifyCommand,
 } from "./remote.js";
 
@@ -25,6 +26,8 @@ const USAGE = `usage:
                   [--operator 0x…  (local: agents)]
   fr prove <agentId> <seq> --out proof.json [--lane N] [--no-writer-filter] [--identity-rpc URL]
   fr agent show <agentId> [--json] [--identity-rpc URL]
+  fr agent update-registration <agentId> --out registration.json [--writer 0x… ...]
+                  [--uri https://…|ipfs://…] [--endpoint URL] [--identity-rpc URL]
   fr keys reader new --out FILE.afrkey | show FILE.afrkey
 
 verify agent exits 0 PASS, 1 PASS_WITH_WARNINGS (2 with --strict), 2 FAIL, 3 usage or infra error.
@@ -116,6 +119,8 @@ async function remote(
         "base-rpc": { type: "string" },
         operator: { type: "string" },
         out: { type: "string" },
+        uri: { type: "string" },
+        endpoint: { type: "string" },
         help: { type: "boolean" },
       },
     });
@@ -126,6 +131,8 @@ async function remote(
     if (p[0] === "verify" && p[1] === "agent") return await verifyCommand(p[2], v, env, d, print);
     if (p[0] === "prove") return await proveCommand(p[1], p[2], v, env, d, print);
     if (p[0] === "agent" && p[1] === "show") return await agentShowCommand(p[2], v, d, print);
+    if (p[0] === "agent" && p[1] === "update-registration")
+      return await updateRegistrationCommand(p[2], v, d, print);
     if (p[0] === "keys" && p[1] === "reader")
       return await keysReaderCommand(p[2], p[3], v, d, print);
     throw new UsageError("unknown command");

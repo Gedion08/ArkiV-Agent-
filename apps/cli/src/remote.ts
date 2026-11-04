@@ -8,12 +8,22 @@ import {
   agentKey,
   batchDigest,
   batchProof,
+  CHAINS,
   isLocalAgentId,
   parseAgentId,
   recoverRecordSigner,
 } from "@afr/core";
 import { exportReaderBackup, generateReaderKey, importReaderBackup } from "@afr/crypto";
-import { type IdentityClient, resolveAgent } from "@afr/identity";
+import {
+  AFR_SERVICE_NAME,
+  AFR_SERVICE_VERSION,
+  type AfrService,
+  buildRegistrationWithAfr,
+  encodeSetAgentURI,
+  findAfrService,
+  type IdentityClient,
+  resolveAgent,
+} from "@afr/identity";
 import {
   createArkivStore,
   decodeCanonical,
@@ -83,7 +93,7 @@ export const defaultPassphrase = (env: NodeJS.ProcessEnv) => () =>
     ? Promise.resolve(env.AFR_READER_PASSPHRASE)
     : hiddenPrompt("reader key passphrase: ");
 
-const CHAINS: Record<number, typeof base | typeof baseSepolia> = {
+const VIEM_CHAINS: Record<number, typeof base | typeof baseSepolia> = {
   [base.id]: base,
   [baseSepolia.id]: baseSepolia,
 };
@@ -95,7 +105,7 @@ const json = (v: unknown) =>
 const clean = (s: string) => s.replace(/[\u0000-\u001f\u007f-\u009f]/g, "?");
 
 const client = (chainId: number, url?: string) => {
-  const chain = CHAINS[chainId];
+  const chain = VIEM_CHAINS[chainId];
   if (!chain && !url) throw new UsageError(`no default RPC for chain ${chainId}; pass an RPC URL`);
   return createPublicClient({
     ...(chain ? { chain } : {}),
@@ -376,6 +386,91 @@ export async function agentShowCommand(
         ? `afr       writers ${afr.arkiv.writers.join(", ")}${afr.anchor ? ` · anchor ${afr.anchor.address}` : ""}`
         : "afr       (no afr service in the registration)",
     ].join("\n")}\n`,
+  );
+  return 0;
+}
+
+const AFR_SCHEMAS = ["afr.batch.v1", "afr.checkpoint.v1"];
+const URI_MAX_BYTES = 64 * 1024; // @afr/identity fetchUriJson's cap: a bigger file wouldn't resolve
+
+/**
+ * fr agent update-registration (L5 §4.2, P3-11): the agent's current registration file with exactly one
+ * `afr` service, written to --out, plus `setAgentURI` calldata for the operator's wallet. Nothing is
+ * signed or sent. Without --uri the file is inlined as a data: URI (nothing to host).
+ */
+export async function updateRegistrationCommand(
+  agentId: string | undefined,
+  v: NetFlags & { out?: string; writer?: string[]; uri?: string; endpoint?: string },
+  deps: NetDeps,
+  print: Out,
+): Promise<number> {
+  const id = agentArg(agentId);
+  if (isLocalAgentId(id)) throw new UsageError("local: agents have no registry entry");
+  if (!v.out) throw new UsageError("--out <registration.json> is required");
+  if (existsSync(v.out)) throw new UsageError(`refusing to overwrite ${v.out}`);
+  if (v.uri !== undefined && !/^(https|ipfs):\/\/\S+$/.test(v.uri))
+    throw new UsageError("--uri must be https:// or ipfs://");
+  if (v.endpoint !== undefined && !/^https:\/\/\S+$/.test(v.endpoint))
+    throw new UsageError("--endpoint must be https://");
+  const { chainId, registry, tokenId } = parseAgentId(id);
+  const cur = await resolveAgent(
+    id,
+    deps.identityRpc ?? client(Number(chainId), v["identity-rpc"]),
+  );
+  const writers = (v.writer?.length ? v.writer : (cur.afr?.afr.arkiv.writers ?? [])).map(
+    (w) => w.toLowerCase() as Hex,
+  );
+  if (!writers.length) throw new UsageError("--writer 0x… is required (no afr entry to keep)");
+  if (!writers.every((w) => ADDR.test(w))) throw new UsageError("--writer must be an address");
+  const anchor = ANCHOR_CONTRACTS[Number(chainId)]?.at(-1);
+  const afr: AfrService = {
+    name: AFR_SERVICE_NAME,
+    endpoint: v.endpoint ?? cur.afr?.endpoint ?? `https://verify.afr.dev/agents/${id}`,
+    version: AFR_SERVICE_VERSION,
+    afr: {
+      agentKey: agentKey(id),
+      arkiv: { chainId: CHAINS.ARKIV_RABDI, schemas: AFR_SCHEMAS, writers: [...new Set(writers)] },
+      ...(anchor
+        ? {
+            anchor: {
+              chainId: Number(chainId),
+              address: anchor.address,
+              fromBlock: Number(anchor.fromBlock),
+            },
+          }
+        : {}),
+      verifier: `npx @afr/cli verify agent ${id}`,
+    },
+  };
+  const next = buildRegistrationWithAfr(cur.registration, afr);
+  const agentRegistry = `eip155:${chainId}:${registry}`;
+  const self = { agentId: Number(tokenId), agentRegistry };
+  if (
+    Number.isSafeInteger(self.agentId) &&
+    !next.registrations?.some(
+      (r) => r.agentRegistry.toLowerCase() === agentRegistry && BigInt(r.agentId) === tokenId,
+    )
+  )
+    next.registrations = [...(next.registrations ?? []), self];
+  findAfrService(next); // throws if the entry we built doesn't parse back
+  const text = json(next);
+  const uri = v.uri ?? `data:application/json;base64,${Buffer.from(text).toString("base64")}`;
+  if (Buffer.byteLength(text) > URI_MAX_BYTES)
+    throw new UsageError("registration file exceeds 64 KiB");
+  writeFileSync(v.out, text, { flag: "wx" });
+  print(
+    json({
+      file: v.out,
+      uri,
+      ...(v.uri ? { host: `upload ${v.out} to ${v.uri} before sending the tx` } : {}),
+      operator: cur.owner,
+      tx: {
+        chainId: Number(chainId),
+        to: registry,
+        function: "setAgentURI(uint256,string)",
+        data: encodeSetAgentURI(tokenId, uri),
+      },
+    }),
   );
   return 0;
 }

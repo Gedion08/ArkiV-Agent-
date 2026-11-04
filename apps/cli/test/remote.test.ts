@@ -4,7 +4,8 @@ import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { batchDigest, recoverRecordSigner, verifyBatchProof } from "@afr/core";
-import type { Hex } from "viem";
+import { IDENTITY_REGISTRY_ABI, resolveAgent } from "@afr/identity";
+import { decodeFunctionData, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, test } from "vitest";
 import {
@@ -184,5 +185,93 @@ describe("fr keys reader", () => {
       passphrase: async () => "short",
     });
     expect(r.code).toBe(3);
+  });
+});
+
+describe("fr agent update-registration", () => {
+  const ID = "eip155:84532:0x8004a818bfb912233c491871b3d84c89a494bd9e:42";
+  const OWNER = `0x${"0a".repeat(20)}` as Hex;
+  const WRITER = `0x${"A1".repeat(20)}` as Hex;
+  const dataUri = (v: unknown) =>
+    `data:application/json;base64,${Buffer.from(JSON.stringify(v)).toString("base64")}`;
+  /** An ERC-8004 registry holding one agent whose tokenURI can be "set" (as the operator's tx would). */
+  const registry = (uri: string) => {
+    const state = { uri };
+    const rpc = {
+      getChainId: async () => 84532,
+      readContract: async ({ functionName }: { functionName: string }) => {
+        if (functionName === "ownerOf") return OWNER;
+        if (functionName === "tokenURI") return state.uri;
+        if (functionName === "getAgentWallet") return OWNER;
+        throw new Error(functionName);
+      },
+    };
+    return { state, deps: { identityRpc: rpc as never } satisfies NetDeps };
+  };
+  const existing = {
+    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+    name: "Demo",
+    services: [{ name: "MCP", endpoint: "https://agent.example/mcp", version: "2025-06-18" }],
+  };
+
+  test("adds the afr service, keeps the rest; the calldata sets a URI that resolves to it", async () => {
+    const { state, deps: d } = registry(dataUri(existing));
+    const out = join(tmp(), "reg.json");
+    const r = await run(["agent", "update-registration", ID, "--out", out, "--writer", WRITER], d);
+    expect(r.code).toBe(0);
+    const res = JSON.parse(r.out);
+    expect(res).toMatchObject({
+      file: out,
+      operator: OWNER,
+      tx: { chainId: 84532, to: "0x8004a818bfb912233c491871b3d84c89a494bd9e" },
+    });
+    const call = decodeFunctionData({ abi: IDENTITY_REGISTRY_ABI, data: res.tx.data });
+    expect(call).toMatchObject({ functionName: "setAgentURI", args: [42n, res.uri] });
+    const file = JSON.parse(readFileSync(out, "utf8"));
+    expect(file.services[0]).toEqual(existing.services[0]);
+    expect(file.registrations).toEqual([
+      { agentId: 42, agentRegistry: "eip155:84532:0x8004a818bfb912233c491871b3d84c89a494bd9e" },
+    ]);
+
+    state.uri = res.uri; // the operator sends the tx
+    const after = await resolveAgent(ID, d.identityRpc);
+    expect(after.registration).toEqual(file);
+    expect(after.afr?.afr).toMatchObject({
+      arkiv: { chainId: 7794095, writers: [WRITER.toLowerCase()] },
+      anchor: { chainId: 84532, address: "0x976cf1d60b3dc477c70b9e649005f5a12202d341" },
+    });
+    const show = await run(["agent", "show", ID], d);
+    expect(show.out).toContain(`afr       writers ${WRITER.toLowerCase()}`);
+
+    // rerun from the updated file: writers are kept, still one afr entry and one registrations row
+    const out2 = join(tmp(), "reg2.json");
+    expect((await run(["agent", "update-registration", ID, "--out", out2], d)).code).toBe(0);
+    expect(JSON.parse(readFileSync(out2, "utf8"))).toEqual(file);
+  });
+
+  test("--uri: the file is hosted by the operator; the calldata points there", async () => {
+    const { deps: d } = registry(dataUri(existing));
+    const argv = ["agent", "update-registration", ID, "--writer", WRITER, "--out"];
+    const r = await run([...argv, join(tmp(), "r.json"), "--uri", "ipfs://bafyexample"], d);
+    expect(JSON.parse(r.out).uri).toBe("ipfs://bafyexample");
+    for (const bad of [
+      [join(tmp(), "r.json"), "--uri", "http://plain.example/r.json"],
+      [join(tmp(), "r.json"), "--endpoint", "javascript:alert(1)"],
+    ])
+      expect((await run([...argv, ...bad], d)).code).toBe(3);
+  });
+
+  test("no writers anywhere, an existing --out, or a local: agent → 3", async () => {
+    const { deps: d } = registry(dataUri(existing));
+    const out = join(tmp(), "r.json");
+    expect((await run(["agent", "update-registration", ID, "--out", out], d)).code).toBe(3);
+    const argv = ["agent", "update-registration", ID, "--writer", WRITER, "--out", out];
+    expect((await run(argv, d)).code).toBe(0);
+    expect((await run(argv, d)).code).toBe(3);
+    const local = "local:3f1c2a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+    expect(
+      (await run(["agent", "update-registration", local, "--writer", WRITER, "--out", "x"], d))
+        .code,
+    ).toBe(3);
   });
 });

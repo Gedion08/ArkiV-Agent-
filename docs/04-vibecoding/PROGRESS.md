@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓, P3-10 ✓ | Next: P3-11 (`fr agent update-registration`). The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
+| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓, P3-10 ✓, P3-11 ✓ (CLI; on-chain acceptance pending: the operator signs `setAgentURI` for the demo agent) | Next: P3-12 (staging infra). The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -17,6 +17,19 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P3-11 `fr agent update-registration`
+- `fr agent update-registration <agentId> --out registration.json [--writer …] [--uri …] [--endpoint …]` (L5 §4.2 note).
+  - It writes the registration file with exactly one `afr` entry and prints `setAgentURI` calldata plus the current operator. Nothing is signed or sent.
+  - The default URI is an inline `data:` URI, so nothing has to be hosted. `--uri` (https or ipfs) means the operator uploads the file first.
+- Tests (`apps/cli/test/remote.test.ts`, in-memory registry through the real `resolveAgent`):
+  - the existing services are kept;
+  - the calldata decodes to `setAgentURI(42, uri)`;
+  - after "sending", `resolveAgent` and `fr agent show` see the `afr` service with the expected writers and anchor;
+  - a rerun is idempotent;
+  - bad `--uri`/`--endpoint`, a missing writer list, an existing `--out` and `local:` agents → 3.
+- Acceptance ("demo agent's registration contains the afr service") still needs a real Base Sepolia agent. The operator registers it if needed, then signs the printed `setAgentURI`. Check it with `fr agent show`.
+- Shortcuts: no `fr agent register`, and no fork test of the CLI itself (P3-04's fork test covers `setAgentURI`/`tokenURI` against the real registry). The profile-vs-registration writer mismatch is left to the verifier's warning.
 
 ### 2026-11-04: P3-10 `apps/cli` remote commands
 - `fr verify agent`, `fr prove`, `fr agent show`, `fr keys reader new|show` (`apps/cli/src/remote.ts`), dispatched from `main`. `main` gains an optional `deps: NetDeps` (store, identity and anchor readers, passphrase) so tests run without a network.

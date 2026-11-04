@@ -208,6 +208,13 @@ Daily: for each agent with `expiry=rolling`, query batches/checkpoints with `$ex
 - The adapter reads `services` **or** `endpoints` (older drafts).
 - The dashboard generates the updated file, offers hosting (IPFS pin via web3.storage/Pinata, or the customer's HTTPS), and prepares the `setAgentURI` tx for the operator to sign.
 - The `writers` list here and in the signed `AgentProfile` must match. The verifier warns if they differ.
+- CLI (P3-10/11): `fr agent update-registration <agentId> --out registration.json [--writer 0x… …] [--uri https://…|ipfs://…] [--endpoint URL]`.
+  - It reads the current file through `tokenURI` and replaces or adds the single `afr` entry. Every other field and service is kept.
+  - It adds the agent's own `registrations[]` row if that row is missing.
+  - The anchor is the latest `ANCHOR_CONTRACTS` entry for the identity chain.
+  - Writers come from `--writer`, otherwise from the existing `afr` entry.
+  - It prints `setAgentURI` calldata and the current operator. Nothing is signed or sent.
+  - Without `--uri`, the file is inlined as a `data:application/json;base64` URI, which needs no hosting. It is capped at 64 KiB, the same cap `fetchUriJson` uses.
 
 ### 4.3 Operator resolution
 
