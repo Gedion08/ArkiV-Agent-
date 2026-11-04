@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | not started | |
+| P3 Anchor + verify | in progress: P3-01 ✓ | P3-02 (contracts/) and P3-03 (Base Sepolia deploy) need sign-off. |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -17,6 +17,15 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P3-01 anchor tree + `anchor.json`
+- `@afr/core` `merkle.ts` (L1 §6):
+  - `AnchorLeaf`, `sortAnchorLeaves`, `anchorRoot`, `anchorProof` (looked up by (agent_key, lane), never by index) and `verifyAnchorProof`.
+  - Leaves are `[bytes32, uint32, uint64, bytes32]`, sorted by (agent_key, lane) inside the function, so input order never matters.
+  - Errors: ANCHOR_EMPTY, ANCHOR_DUPLICATE (agent_key compared case-insensitively), ANCHOR_LEAF_NOT_FOUND.
+- New vector file `anchor.json` (afr/anchor v1): a single leaf, and 5 leaves over 3 agents given unsorted (lane 2³²−1, seq_to 2⁶⁴−1). Existing vector files are unchanged (gen reports 0 rewrites).
+- Tests: core merkle (OZ parity, forged leaves, error codes) and vectors.test.ts recomputes `anchor.json`.
+- Next: P3-02 `RecorderAnchor.sol` (needs sign-off for `contracts/`); its Foundry suite should check parity with `anchor.json`.
 
 ### 2026-11-04: P2 definition of done
 - Conformance is green on memory, Postgres and Rabdi (P2-05, P2-06, P2-08).
@@ -275,7 +284,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 ### 2026-11-02 — P1-01 … P1-09 (format and crypto core)
 - Done: `@afr/core` — constants (Arch §21) + lock address; ids (`parseAgentId`, `agentKey`, `batchId`, `epochIdFor`); `jcs`/`jcsData` with guards; `commit`; Zod schemas (strict, per-type required fields, meta limits) + derived types; `buildHeader`/`validateHeader`/`hashHeader`/`buildBody` (truncation, redaction pass-through)/`commitmentsFor`; sync noble `localSigner` (byte-identical to viem `signMessage({raw})`); batch Merkle (OZ StandardMerkleTree), `chainRoot`, `batchDigest`; EIP-712 types for all 9 statements + `hashTyped`/`verifyTyped`; `verifyLinks`/`verifyRecords`/`verifyBody` with L7 codes. 76 core tests (T1–T5, T7, T8; T3/T4 at 10k runs). `@afr/test-vectors`: atomic, immutability-checking generator, 9 vector files (58 cases incl. 10 negative), `vectors.test.ts` recomputes all (49 tests). `pnpm verify` green.
 - Decisions: S14 (two JCS modes, NFC kept), S15 (`epoch_id` always `month*16+rotation`), S16 (commitment has the `0x00` separator). `buildBody` returns `{ body, commit }` because commitments cover the untruncated value. `verifyLinks` resyncs after an invalid header instead of cascading SEQ_GAP/CHAIN_BREAK. T9 moved to `pnpm bench` (runs alone).
-- Deviations from docs (+ doc edits made): L1 §2.2, §3.5, §9, §10; Arch §8; ADR-003 rule text. `vectors.test.ts` lives in `packages/test-vectors` (core may not import other packages). `anchor.json` and anchor trees deferred to P3 (phase says "L1 all except anchors").
+- Deviations from docs (+ doc edits made): L1 §2.2, §3.5, §9, §10; Arch §8; ADR-003 rule text. `vectors.test.ts` lives in `packages/test-vectors` (core may not import other packages). `anchor.json` and anchor trees deferred to P3 (phase says "L1 all except anchors"); done in P3-01.
 - Open issues: **T9 not met here**: p99 ≈ 2.8 ms (sign ≈ 1 ms on this loaded box), see S13. Fixture registry address in vectors is a made-up test value. Dependencies added: viem 2.57.7, @noble/curves+hashes 2.4.0, canonicalize 5.1.0, @openzeppelin/merkle-tree 1.0.8, zod 4.6.7 (runtime); fast-check 4.10.2, ethers 6.17.0 (test). Still no git commit.
 - Next: P1-10 … P1-13 (config, journal, keys, sequencer) — needs better-sqlite3 (native build) and `yaml`.
 

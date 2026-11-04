@@ -1,11 +1,16 @@
 import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
-import { encodePacked, keccak256 } from "viem";
+import { encodePacked, type Hex, keccak256 } from "viem";
 import { describe, expect, test } from "vitest";
 import {
+  type AnchorLeaf,
+  anchorProof,
+  anchorRoot,
   batchDigest,
   batchProof,
   batchRoot,
   chainRoot,
+  sortAnchorLeaves,
+  verifyAnchorProof,
   verifyBatchProof,
   ZERO_HASH,
 } from "../src/index.js";
@@ -77,5 +82,50 @@ describe("chain", () => {
     })) {
       expect(batchDigest({ ...p, [k]: v })).not.toBe(d);
     }
+  });
+});
+
+describe("P3-01 anchor merkle (L1 §6)", () => {
+  const leaves: AnchorLeaf[] = [
+    { agentKey: H32("bb"), lane: 0, seqTo: 9n, chainRoot: H32("01") },
+    { agentKey: H32("aa"), lane: 2, seqTo: 3n, chainRoot: H32("02") },
+    { agentKey: H32("aa"), lane: 1, seqTo: 7n, chainRoot: H32("03") },
+  ];
+
+  test("root equals OZ StandardMerkleTree over the (agent_key, lane)-sorted leaves", () => {
+    const sorted = [leaves[2]!, leaves[1]!, leaves[0]!];
+    const oz = StandardMerkleTree.of(
+      sorted.map((l) => [l.agentKey, l.lane, l.seqTo, l.chainRoot]),
+      ["bytes32", "uint32", "uint64", "bytes32"],
+    );
+    expect(sortAnchorLeaves(leaves)).toEqual(sorted);
+    expect(anchorRoot(leaves)).toBe(oz.root);
+    expect(anchorRoot([...leaves].reverse())).toBe(oz.root); // input order never matters
+  });
+
+  test("every proof verifies; a forged seq_to, chain_root or lane fails", () => {
+    const root = anchorRoot(leaves);
+    for (const l of leaves) {
+      const proof = anchorProof(leaves, l.agentKey, l.lane);
+      expect(verifyAnchorProof(root, l, proof)).toBe(true);
+      expect(verifyAnchorProof(root, { ...l, seqTo: l.seqTo + 1n }, proof)).toBe(false);
+      expect(verifyAnchorProof(root, { ...l, chainRoot: H32("ff") }, proof)).toBe(false);
+      expect(verifyAnchorProof(root, { ...l, lane: l.lane + 5 }, proof)).toBe(false);
+    }
+  });
+
+  test("empty, duplicate (agent, lane) and unknown leaves throw", () => {
+    expect(() => anchorRoot([])).toThrow(expect.objectContaining({ code: "ANCHOR_EMPTY" }));
+    const dup = {
+      ...leaves[0]!,
+      agentKey: leaves[0]!.agentKey.toUpperCase().replace("0X", "0x") as Hex,
+      seqTo: 1n,
+    };
+    expect(() => anchorRoot([...leaves, dup])).toThrow(
+      expect.objectContaining({ code: "ANCHOR_DUPLICATE" }),
+    );
+    expect(() => anchorProof(leaves, H32("cc"), 0)).toThrow(
+      expect.objectContaining({ code: "ANCHOR_LEAF_NOT_FOUND" }),
+    );
   });
 });

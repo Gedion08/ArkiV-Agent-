@@ -1,7 +1,10 @@
 // Recomputes every committed vector with @afr/core (L1 §11). A failure means the implementation drifted.
 import { readFileSync } from "node:fs";
 import {
+  type AnchorLeaf,
   agentKey,
+  anchorProof,
+  anchorRoot,
   batchDigest,
   batchProof,
   batchRoot,
@@ -19,6 +22,7 @@ import {
   recoverRecordSigner,
   type StatementType,
   validateHeader,
+  verifyAnchorProof,
   verifyBatchProof,
   verifyBody,
   verifyRecords,
@@ -114,6 +118,21 @@ describe("vectors", () => {
     e.forEach((x, i) => {
       expect(batchProof(e, x.seq)).toEqual(expected.proofs[i]);
       expect(verifyBatchProof(expected.root, x, expected.proofs[i])).toBe(true);
+    });
+  });
+
+  test.each(load("anchor.json"))("anchor $name", ({ input, expected }) => {
+    const leaf = (l: { agent_key: Hex; lane: number; seq_to: string; chain_root: Hex }) => ({
+      agentKey: l.agent_key,
+      lane: l.lane,
+      seqTo: BigInt(l.seq_to),
+      chainRoot: l.chain_root,
+    });
+    const leaves: AnchorLeaf[] = input.leaves.map(leaf);
+    expect(anchorRoot(leaves)).toBe(expected.root);
+    expected.sorted.map(leaf).forEach((l: AnchorLeaf, i: number) => {
+      expect(anchorProof(leaves, l.agentKey, l.lane)).toEqual(expected.proofs[i]);
+      expect(verifyAnchorProof(expected.root, l, expected.proofs[i])).toBe(true);
     });
   });
 

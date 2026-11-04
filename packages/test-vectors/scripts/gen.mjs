@@ -2,6 +2,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import {
   agentKey,
+  anchorProof,
+  anchorRoot,
   batchDigest,
   batchProof,
   batchRoot,
@@ -18,6 +20,7 @@ import {
   jcsData,
   localSigner,
   parseAgentId,
+  sortAnchorLeaves,
   typedData,
   verifyBody,
   verifyRecords,
@@ -488,6 +491,46 @@ negCases.push({
   expected: { codes: ["COMMIT_MISMATCH"] },
 });
 emit("negative/records.json", "afr/negative-records", negCases);
+
+// anchor.json (L1 §6): leaves given unsorted; root over the (agent_key, lane)-sorted set, proofs by leaf
+const ak2 = agentKey("eip155:84532:0x00000000000000000000000000000000000a8004:8");
+const ak3 = agentKey("local:00000000-0000-4000-8000-000000000003");
+const leaf = (agentKey, lane, seqTo, label) => ({ agentKey, lane, seqTo, chainRoot: h32(label) });
+const anchorSets = [
+  ["single", [leaf(ak, 0, 4n, "anchor-a0")]],
+  [
+    "multi-agent-lanes",
+    [
+      leaf(ak3, 0, 0n, "anchor-c0"),
+      leaf(ak, 1, 17n, "anchor-a1"),
+      leaf(ak2, 0, 18446744073709551615n, "anchor-b0"),
+      leaf(ak, 0, 4n, "anchor-a0"),
+      leaf(ak, 4294967295, 9n, "anchor-amax"),
+    ],
+  ],
+];
+const anchorLeafJson = (l) => ({
+  agent_key: l.agentKey,
+  lane: l.lane,
+  seq_to: l.seqTo,
+  chain_root: l.chainRoot,
+});
+emit(
+  "anchor.json",
+  "afr/anchor",
+  anchorSets.map(([name, leaves]) => {
+    const sorted = sortAnchorLeaves(leaves);
+    return {
+      name,
+      input: { leaves: leaves.map(anchorLeafJson) },
+      expected: {
+        root: anchorRoot(leaves),
+        sorted: sorted.map(anchorLeafJson),
+        proofs: sorted.map((l) => anchorProof(leaves, l.agentKey, l.lane)),
+      },
+    };
+  }),
+);
 
 for (const [url, text] of pending) {
   mkdirSync(new URL(".", url), { recursive: true });
