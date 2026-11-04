@@ -18,20 +18,23 @@ import {
   type ToolInfo,
   verifyLinks,
 } from "@afr/core";
+import { nonceCommit, RECORDER_KEY_RE, txCommit, userOpCommit } from "@afr/crypto";
 import type { Logger } from "@afr/log";
 import type { EvidenceStore } from "@afr/store";
 import type { Hex } from "viem";
 import { Batcher } from "./batcher.js";
 import { type Config, configHash, expandHome } from "./config.js";
 import { EpochManager, type KeygrantSealer, publishKeygrants } from "./epochs.js";
-import { Journal } from "./journal.js";
+import { type BatchRow, Journal } from "./journal.js";
 import { KeyManager, type SessionKey, type SignatureRequester } from "./keys.js";
 import { loadJournalKey } from "./keystore.js";
 import { hashBinaryContent, normalizeMeta, normalizeTx, type TxInput } from "./normalize.js";
+import { Outbox } from "./outbox.js";
 import { publishDelegations, publishProfile } from "./statements.js";
 import { Uploader } from "./uploader.js";
 
 export const RECORDER_VERSION = "afr-recorder/0.1.0";
+const API_HEARTBEAT_MS = 30_000;
 const ROTATE_BEFORE_S = 600n;
 const VERIFY_TAIL = 100n;
 
@@ -87,6 +90,8 @@ export interface UploadOptions {
   canSubmit?: (sessionKeys: Hex[]) => boolean | Promise<boolean>;
   /** Writer accounts declared in the agent profile (default: the store's `writer`, if it has one). */
   writers?: Hex[];
+  /** fetch for the outbox → API (config `api`; tests inject one). */
+  apiFetch?: typeof fetch;
   /** Timer period for age/heartbeat checks (default 1 s). */
   tickMs?: number;
 }
@@ -131,6 +136,8 @@ export class Recorder {
   /** Statement kinds whose publish failure is already logged (once per outage, not every tick). */
   readonly #publishFailing = new Set<string>();
   #uploader: Uploader | undefined;
+  #outbox: Outbox | undefined;
+  #lastApiHeartbeatAt = 0;
   #tick: NodeJS.Timeout | undefined;
   #flushing: Promise<void> | undefined;
   #flushQueued = false;
@@ -181,7 +188,7 @@ export class Recorder {
       });
       const rec = new Recorder({ ...o, random }, journal, keys);
       const recoveredFrom = rec.#verifyTail();
-      if (o.upload) rec.#startUpload(o.upload, random);
+      if (o.upload) rec.#startUpload(o.upload, random, env);
       rec.#openSession(
         recoveredFrom === undefined ? {} : { recovered_from_seq: recoveredFrom.toString() },
       );
@@ -214,8 +221,22 @@ export class Recorder {
     return to;
   }
 
-  #startUpload(u: UploadOptions, random: (n: number) => Uint8Array): void {
+  #startUpload(u: UploadOptions, random: (n: number) => Uint8Array, env: NodeJS.ProcessEnv): void {
     const cfg = this.#cfg;
+    if (cfg.api) {
+      const token = env[cfg.api.key_env] ?? "";
+      if (RECORDER_KEY_RE.test(token))
+        this.#outbox = new Outbox({
+          journal: this.journal,
+          url: cfg.api.url,
+          token,
+          now: this.#now,
+          ...(u.apiFetch ? { fetch: u.apiFetch } : {}),
+          ...(this.#log ? { logger: this.#log } : {}),
+        });
+      // fail-open: evidence still goes to the store; only the API mirror and alerts are missing
+      else this.#log?.warn({ code: "API_KEY_MISSING", env: cfg.api.key_env }, "outbox disabled");
+    }
     const privacy = cfg.agent.privacy_level;
     const key = agentKey(this.agentId);
     const epochs = new EpochManager({
@@ -257,6 +278,21 @@ export class Recorder {
       privacy,
       // ADR-013 amendment: rolling creates live 30 d (extended later); upfront only for ≤ 30 d retention
       expiresAt: { days: Math.min(cfg.agent.retention_days, 30) },
+      ...(this.#outbox
+        ? {
+            onVerified: (b: BatchRow, entityKey: Hex) =>
+              this.journal.enqueueNotice("checkpoint", {
+                agent_key: key,
+                lane: this.lane,
+                seq_from: b.seqFrom.toString(),
+                seq_to: b.seqTo.toString(),
+                batch_root: b.batchRoot,
+                chain_root: b.chainRoot,
+                entity_key: entityKey,
+                ...(b.txHash ? { arkiv_tx: b.txHash } : {}),
+              }),
+          }
+        : {}),
       canSubmit: async (pub) =>
         epochs.grantsReady(pub.epoch_id) &&
         // L2 §9: never before the delegation of every key listed in the batch
@@ -271,6 +307,7 @@ export class Recorder {
 
   #onTick(): void {
     if (this.#closed || !this.#batcher) return;
+    this.#tickOutbox();
     const hb = this.#cfg.batch;
     if (
       this.#cfg.agent.privacy_level === 0 &&
@@ -289,6 +326,52 @@ export class Recorder {
       // if a store's rate limits make once-per-second retries costly.
       this.#queueFlush(false);
     }
+  }
+
+  /** L2 §10: a heartbeat every 30 s and delivery of due notices; never throws (fail-open). */
+  #tickOutbox(): void {
+    const ob = this.#outbox;
+    if (!ob) return;
+    if (this.#now() - this.#lastApiHeartbeatAt >= API_HEARTBEAT_MS) {
+      this.#lastApiHeartbeatAt = this.#now();
+      const counts = this.journal.batchCounts();
+      const oldest = this.journal.oldestUnverifiedBatchAt();
+      void ob
+        .heartbeat({
+          agent_key: agentKey(this.agentId),
+          lane: this.lane,
+          next_seq: this.#nextSeq.toString(),
+          pending_batches: Object.entries(counts)
+            .filter(([state]) => state !== "verified")
+            .reduce((n, [, c]) => n + (c ?? 0), 0),
+          store_lag_s: oldest ? Math.max(0, Math.floor((this.#now() - oldest) / 1000)) : 0,
+          key_not_after: this.#session.delegation.notAfter.toString(),
+          version: RECORDER_VERSION,
+        })
+        .catch(() => {});
+    }
+    void ob.drain().catch(() => {});
+  }
+
+  /** The L2 §10 tx_intent for a tx_sign record (needs the watch key for its commitments). */
+  #intentFor(header: RecordHeaderV1): Record<string, unknown> | undefined {
+    const wk = this.#upload?.watchKey;
+    const tx = header.tx;
+    if (!this.#outbox || !wk || header.type !== "tx_sign" || !tx) return undefined;
+    const chain = BigInt(tx.chain_id);
+    const txc = tx.tx_hash
+      ? txCommit(wk, chain, tx.tx_hash as Hex)
+      : tx.user_op_hash
+        ? userOpCommit(wk, chain, tx.user_op_hash as Hex)
+        : undefined;
+    return {
+      agent_key: agentKey(this.agentId),
+      lane: this.lane,
+      seq: header.seq,
+      chain_id: tx.chain_id,
+      ...(txc ? { tx_commit: txc } : {}),
+      nonce_commit: nonceCommit(wk, chain, tx.from as Hex, BigInt(tx.nonce)),
+    };
   }
 
   /** Never on the capture path: sealing runs on a later macrotask. */
@@ -326,6 +409,7 @@ export class Recorder {
         }
         await this.#publishStatements();
         await uploader.drain();
+        await this.#outbox?.drain();
       } catch (e) {
         this.#log?.error(
           { code: (e as { code?: string }).code ?? "BATCH_ERROR" },
@@ -352,6 +436,7 @@ export class Recorder {
         agentKey: key,
         lane: this.lane,
         expiresAt,
+        notify: !!this.#outbox,
       }),
     );
     await this.#publish("profile", () =>
@@ -550,15 +635,16 @@ export class Recorder {
     const headerJcs = jcs(header);
     const hash = hashHeader(header);
     const sig = s.signer.signDigest(hash);
-    const bodyBytes = this.journal.appendRecord({
-      seq,
-      header,
-      headerJcs,
-      body,
-      hash,
-      sig,
-      sessionKey: s.address,
-    });
+    const append = () =>
+      this.journal.appendRecord({ seq, header, headerJcs, body, hash, sig, sessionKey: s.address });
+    const intent = this.#intentFor(header);
+    const bodyBytes = intent
+      ? this.journal.atomically(() => {
+          const n = append();
+          this.journal.enqueueNotice("tx_intent", intent);
+          return n;
+        })
+      : append();
     this.#nextSeq = seq + 1n;
     this.#prevHash = hash;
     this.#lastCaptureAt = this.#now();

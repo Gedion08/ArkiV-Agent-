@@ -3,5 +3,6 @@
 export const PACKAGE_NAME = "@afr/crypto";
 
 export * from "./aes.js";
+export * from "./api-auth.js";
 export * from "./batch.js";
 export * from "./watch.js";

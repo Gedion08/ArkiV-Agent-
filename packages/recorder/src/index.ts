@@ -8,6 +8,7 @@ export * from "./journal.js";
 export * from "./keys.js";
 export * from "./keystore.js";
 export * from "./normalize.js";
+export * from "./outbox.js";
 export * from "./recorder.js";
 export * from "./seal.js";
 export * from "./statements.js";

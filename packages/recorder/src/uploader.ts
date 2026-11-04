@@ -24,6 +24,8 @@ export interface UploaderOptions {
   expiresAt: Expiry;
   /** Submission gate: keygrants of the batch's epoch (L4 §5) and delegations (L2 §9, P2-12) first. */
   canSubmit?: (pub: BatchPublicV1) => boolean | Promise<boolean>;
+  /** Runs in the same journal transaction that marks the batch verified (the L2 §10 checkpoint). */
+  onVerified?: (b: BatchRow, entityKey: Hex) => void;
   logger?: Logger;
 }
 
@@ -110,8 +112,15 @@ export class Uploader {
       return "waiting";
     }
     this.#pending.delete(b.seqFrom);
-    this.#o.journal.updateBatch(b.seqFrom, { state: "verified", entityKey: key });
+    this.#markVerified(b, key);
     return "progress";
+  }
+
+  #markVerified(b: BatchRow, key: Hex) {
+    this.#o.journal.atomically(() => {
+      this.#o.journal.updateBatch(b.seqFrom, { state: "verified", entityKey: key });
+      this.#o.onVerified?.(b, key);
+    });
   }
 
   /** Drives the lowest unverified batch by one transition. */
@@ -151,7 +160,7 @@ export class Uploader {
           try {
             const ref = await store.await(w);
             this.#pending.delete(b.seqFrom);
-            journal.updateBatch(b.seqFrom, { state: "verified", entityKey: ref.key });
+            this.#markVerified(b, ref.key);
             return "progress";
           } catch (e) {
             this.#pending.delete(b.seqFrom); // next step reconciles from the journal

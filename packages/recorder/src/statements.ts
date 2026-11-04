@@ -33,6 +33,8 @@ export interface PublishDelegationsOptions {
   agentKey: Hex;
   lane: number;
   expiresAt: Expiry;
+  /** Queue the L2 §10 delegation notice (only when an API is configured). */
+  notify?: boolean;
 }
 
 /** Publishes every signed, unpublished delegation in the journal, dead sessions' included. */
@@ -64,7 +66,19 @@ export async function publishDelegations(o: PublishDelegationsOptions): Promise<
       idempotencyKey,
     });
     // the payload is deterministic, so an id conflict can only be our own earlier write
-    o.journal.markDelegationPublished(d.address, key ?? idempotencyKey);
+    const entityKey = key ?? idempotencyKey;
+    o.journal.atomically(() => {
+      o.journal.markDelegationPublished(d.address, entityKey);
+      // L2 §10 delegation notice (the API mirrors session keys)
+      if (o.notify)
+        o.journal.enqueueNotice("delegation", {
+          lane: o.lane,
+          session_key: sessionKey,
+          not_before: String(d.notBefore),
+          not_after: String(d.notAfter),
+          entity_key: entityKey,
+        });
+    });
   }
 }
 

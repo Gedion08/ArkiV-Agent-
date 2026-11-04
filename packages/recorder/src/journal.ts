@@ -63,6 +63,16 @@ const MIGRATIONS: string[] = [
    ALTER TABLE session_keys ADD COLUMN delegation_entity TEXT;`,
 ];
 
+export type NoticeKind = "checkpoint" | "tx_intent" | "delegation";
+
+export interface NoticeRow {
+  id: number;
+  kind: NoticeKind;
+  payload: Record<string, unknown>;
+  attempts: number;
+  createdAt: number;
+}
+
 export interface SessionKeyRow {
   address: Hex;
   sessionId: Hex;
@@ -272,6 +282,63 @@ export class Journal {
     this.#db
       .prepare("UPDATE session_keys SET delegation_entity = ? WHERE address = ?")
       .run(entityKey, address);
+  }
+
+  /** Runs `fn` in one SQLite transaction (e.g. a state change + the outbox notice it implies). */
+  atomically<T>(fn: () => T): T {
+    return this.#db.transaction(fn)();
+  }
+
+  /** L2 §10 outbox: a notice for the API, delivered at least once (the API is idempotent). */
+  enqueueNotice(kind: NoticeKind, payload: Record<string, unknown>): void {
+    const now = this.#now();
+    this.#db
+      .prepare(
+        "INSERT INTO outbox (kind, payload, next_attempt_at, created_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(kind, JSON.stringify(payload), now, now);
+  }
+
+  dueNotices(nowMs: number, limit = 100): NoticeRow[] {
+    return (
+      this.#db
+        .prepare("SELECT * FROM outbox WHERE next_attempt_at <= ? ORDER BY id LIMIT ?")
+        .all(nowMs, limit) as Record<string, string | number>[]
+    ).map((r) => ({
+      id: r.id as number,
+      kind: r.kind as NoticeKind,
+      payload: JSON.parse(r.payload as string),
+      attempts: r.attempts as number,
+      createdAt: r.created_at as number,
+    }));
+  }
+
+  deleteNotices(ids: number[]): void {
+    const del = this.#db.prepare("DELETE FROM outbox WHERE id = ?");
+    this.#db.transaction(() => {
+      for (const id of ids) del.run(id);
+    })();
+  }
+
+  retryNotices(ids: number[], nextAttemptAt: number): void {
+    const up = this.#db.prepare(
+      "UPDATE outbox SET attempts = attempts + 1, next_attempt_at = ? WHERE id = ?",
+    );
+    this.#db.transaction(() => {
+      for (const id of ids) up.run(nextAttemptAt, id);
+    })();
+  }
+
+  /** created_at of the oldest batch not yet verified (heartbeat `store_lag_s`). */
+  oldestUnverifiedBatchAt(): number | undefined {
+    const r = this.#db
+      .prepare("SELECT min(created_at) AS t FROM batches WHERE state != 'verified'")
+      .get() as { t: number | null };
+    return r.t ?? undefined;
+  }
+
+  outboxSize(): number {
+    return (this.#db.prepare("SELECT count(*) AS n FROM outbox").get() as { n: number }).n;
   }
 
   getMeta(k: string): string | undefined {

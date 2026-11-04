@@ -8,7 +8,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 |---|---|---|
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
-| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps), P2-12 ✓, P2-13 ✓ (API v0) | Blocked: P2-07 part 2 (HPKE deps). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). Not started: P2-14…P2-16 |
+| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps), P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓ | Blocked: P2-07 part 2 (HPKE deps). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). Not started: P2-15, P2-16 |
 | P3 Anchor + verify | not started | |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
@@ -17,6 +17,14 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P2-14 recorder outbox → API
+- `@afr/crypto` (additive): `RECORDER_KEY_RE`, `recorderStringToSign`, `recorderSecretHash`, `signRecorderRequest`, moved from `apps/api` so the recorder and the API share one signer (the API re-exports them).
+- Journal: `outbox` table + `atomically`, `enqueueNotice`, `dueNotices`, `deleteNotices`, `retryNotices`, `outboxSize`, `oldestUnverifiedBatchAt`. Notices are journaled in the same transaction as the record append (`tx_intent`), the batch `verified` update (`checkpoint`, via `Uploader.onVerified`) and `markDelegationPublished` (`delegation`).
+- `Outbox` (`src/outbox.ts`): single-flight drain, intents batched ≤ 100, backoff `min(1 s·2^n, 1 h)`, 4xx (≠ 408/429) dropped and logged, 7-day expiry; heartbeat every 30 s from the tick. Wired when `api` is configured and `env[api.key_env]` is a recorder key, else `API_KEY_MISSING`.
+- Tests (`test/outbox.test.ts`): signatures checked against the shared signer; delegation + checkpoint match the journal; intents batched with watch-key commitments; API down → kept with backoff, delivered after a restart in order, 400s dropped; no key → off; one heartbeat across many ticks; canary absent from all request bodies. API-side idempotency is P2-13's P5 test. Payloads checked against the API's strict schemas by hand. `pnpm verify` green with `AFR_PG_URL`.
+- shortcuts: no recorder→real-API e2e test (needs `@afr/recorder` as an `apps/api` devDep); `GET /v1/recorder/config` isn't polled (`sync_readers` would rotate the epoch; readers are [] until §4.7); `msg_sign` sends no intent.
+- Next: P2-15 (mirror mode).
 
 ### 2026-11-04: P2-13 apps/api v0
 - Deps (approved, lean set): `fastify` 5.12.8, `@fastify/cookie` 11.1.5 (exact). Reuses `pg`, `zod`, `viem` (`viem/siwe` for EIP-4361, so no `siwe` package).

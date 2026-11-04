@@ -402,7 +402,12 @@ Redaction runs **before** commitment, so redacted secrets never exist in evidenc
 | `heartbeat` | every 30 s | `{agent_key, lane, next_seq, pending_batches, store_lag_s, key_not_after, version}` |
 | `delegation` | delegation published | `{session_key, not_before, not_after, entity_key}` |
 
-Delivery: HTTPS POST with `Authorization: Bearer <recorder api key>` and an `X-AFR-Signature` HMAC of the body. Retries use exponential backoff for up to 7 days, and the notices are idempotent by (kind, agent, lane, seq).
+Delivery: HTTPS POST signed as in L8 §2 (`signRecorderRequest` in `@afr/crypto`, shared with the API's check). The key comes from `env[api.key_env]`; without a well-formed key the outbox is off and `API_KEY_MISSING` is logged once.
+
+- Durable: `tx_intent`, `checkpoint` and `delegation` are journaled (`outbox` table) in the same SQLite transaction as the state change that implies them (record append, batch `verified`, delegation published), so a crash can't lose or invent one. Delivery is at least once; the API dedupes by unique keys (kind, agent, lane, seq / session key).
+- Drain on every tick and at `flush()`: up to 100 `tx_intent`s go in one call, the other kinds one per call, oldest first. 2xx → delete. 4xx other than 408/429 → delete and log `OUTBOX_REJECTED` (a retry can't fix it). Anything else, or a network error → `next_attempt_at = now + min(1 s·2^attempts, 1 h)` and stop until the next tick. Notices older than 7 days are dropped (`OUTBOX_EXPIRED`).
+- `heartbeat` is best effort, at most every 30 s from the tick, and never queued.
+- `msg_sign` produces no `tx_intent` yet (no nonce to commit to).
 
 ---
 
