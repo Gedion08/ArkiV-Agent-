@@ -20,7 +20,7 @@ import {
 } from "@afr/core";
 import { nonceCommit, RECORDER_KEY_RE, txCommit, userOpCommit } from "@afr/crypto";
 import type { Logger } from "@afr/log";
-import type { EvidenceStore } from "@afr/store";
+import type { EvidenceStore, PutRequest } from "@afr/store";
 import type { Hex } from "viem";
 import { Batcher } from "./batcher.js";
 import { type Config, configHash, expandHome } from "./config.js";
@@ -28,6 +28,7 @@ import { EpochManager, type KeygrantSealer, publishKeygrants } from "./epochs.js
 import { type BatchRow, Journal } from "./journal.js";
 import { KeyManager, type SessionKey, type SignatureRequester } from "./keys.js";
 import { loadJournalKey } from "./keystore.js";
+import { Mirror } from "./mirror.js";
 import { hashBinaryContent, normalizeMeta, normalizeTx, type TxInput } from "./normalize.js";
 import { Outbox } from "./outbox.js";
 import { publishDelegations, publishProfile } from "./statements.js";
@@ -90,6 +91,8 @@ export interface UploadOptions {
   canSubmit?: (sessionKeys: Hex[]) => boolean | Promise<boolean>;
   /** Writer accounts declared in the agent profile (default: the store's `writer`, if it has one). */
   writers?: Hex[];
+  /** L3 §9 mirror (config `store.mirror: postgres`): every confirmed entity is copied here too. */
+  mirror?: EvidenceStore;
   /** fetch for the outbox → API (config `api`; tests inject one). */
   apiFetch?: typeof fetch;
   /** Timer period for age/heartbeat checks (default 1 s). */
@@ -137,6 +140,7 @@ export class Recorder {
   readonly #publishFailing = new Set<string>();
   #uploader: Uploader | undefined;
   #outbox: Outbox | undefined;
+  #mirror: Mirror | undefined;
   #lastApiHeartbeatAt = 0;
   #tick: NodeJS.Timeout | undefined;
   #flushing: Promise<void> | undefined;
@@ -237,6 +241,16 @@ export class Recorder {
       // fail-open: evidence still goes to the store; only the API mirror and alerts are missing
       else this.#log?.warn({ code: "API_KEY_MISSING", env: cfg.api.key_env }, "outbox disabled");
     }
+    if (u.mirror)
+      this.#mirror = new Mirror({
+        journal: this.journal,
+        store: u.mirror,
+        now: this.#now,
+        ...(this.#log ? { logger: this.#log } : {}),
+      });
+    // shortcut: stores are injected, not built from config; the host builds the mirror PostgresStore
+    else if (cfg.store.mirror)
+      this.#log?.warn({ code: "MIRROR_UNCONFIGURED", mirror: cfg.store.mirror }, "mirror disabled");
     const privacy = cfg.agent.privacy_level;
     const key = agentKey(this.agentId);
     const epochs = new EpochManager({
@@ -278,21 +292,20 @@ export class Recorder {
       privacy,
       // ADR-013 amendment: rolling creates live 30 d (extended later); upfront only for ≤ 30 d retention
       expiresAt: { days: Math.min(cfg.agent.retention_days, 30) },
-      ...(this.#outbox
-        ? {
-            onVerified: (b: BatchRow, entityKey: Hex) =>
-              this.journal.enqueueNotice("checkpoint", {
-                agent_key: key,
-                lane: this.lane,
-                seq_from: b.seqFrom.toString(),
-                seq_to: b.seqTo.toString(),
-                batch_root: b.batchRoot,
-                chain_root: b.chainRoot,
-                entity_key: entityKey,
-                ...(b.txHash ? { arkiv_tx: b.txHash } : {}),
-              }),
-          }
-        : {}),
+      onVerified: (b: BatchRow, entityKey: Hex, req: PutRequest) => {
+        if (this.#mirror) this.journal.enqueueMirror(req);
+        if (this.#outbox)
+          this.journal.enqueueNotice("checkpoint", {
+            agent_key: key,
+            lane: this.lane,
+            seq_from: b.seqFrom.toString(),
+            seq_to: b.seqTo.toString(),
+            batch_root: b.batchRoot,
+            chain_root: b.chainRoot,
+            entity_key: entityKey,
+            ...(b.txHash ? { arkiv_tx: b.txHash } : {}),
+          });
+      },
       canSubmit: async (pub) =>
         epochs.grantsReady(pub.epoch_id) &&
         // L2 §9: never before the delegation of every key listed in the batch
@@ -308,6 +321,7 @@ export class Recorder {
   #onTick(): void {
     if (this.#closed || !this.#batcher) return;
     this.#tickOutbox();
+    void this.#mirror?.drain().catch(() => {});
     const hb = this.#cfg.batch;
     if (
       this.#cfg.agent.privacy_level === 0 &&
@@ -410,6 +424,7 @@ export class Recorder {
         await this.#publishStatements();
         await uploader.drain();
         await this.#outbox?.drain();
+        await this.#mirror?.drain();
       } catch (e) {
         this.#log?.error(
           { code: (e as { code?: string }).code ?? "BATCH_ERROR" },
@@ -429,6 +444,9 @@ export class Recorder {
     const key = agentKey(this.agentId);
     const expiresAt = { days: Math.min(this.#cfg.agent.retention_days, 30) };
     const writer = (u.store as { writer?: Hex }).writer;
+    const mirror = this.#mirror
+      ? { mirror: (req: PutRequest) => this.journal.enqueueMirror(req) }
+      : {};
     await this.#publish("delegation", () =>
       publishDelegations({
         journal: this.journal,
@@ -437,6 +455,7 @@ export class Recorder {
         lane: this.lane,
         expiresAt,
         notify: !!this.#outbox,
+        ...mirror,
       }),
     );
     await this.#publish("profile", () =>
@@ -450,6 +469,7 @@ export class Recorder {
         retentionDays: this.#cfg.agent.retention_days,
         readers: (this.#epochs as EpochManager).readers,
         writers: (u.writers ?? (writer ? [writer] : [])).map((w) => w.toLowerCase() as Hex),
+        ...mirror,
       }),
     );
     await this.#publish("keygrant", () =>
@@ -460,6 +480,7 @@ export class Recorder {
         session: this.#session,
         ...(u.sealKeygrant ? { sealKeygrant: u.sealKeygrant } : {}),
         expiresAt,
+        ...mirror,
       }),
     );
   }

@@ -24,8 +24,8 @@ export interface UploaderOptions {
   expiresAt: Expiry;
   /** Submission gate: keygrants of the batch's epoch (L4 §5) and delegations (L2 §9, P2-12) first. */
   canSubmit?: (pub: BatchPublicV1) => boolean | Promise<boolean>;
-  /** Runs in the same journal transaction that marks the batch verified (the L2 §10 checkpoint). */
-  onVerified?: (b: BatchRow, entityKey: Hex) => void;
+  /** Runs in the same journal transaction that marks the batch verified (L2 §10 checkpoint, L3 §9 mirror). */
+  onVerified?: (b: BatchRow, entityKey: Hex, req: PutRequest<"afr.batch.v1">) => void;
   logger?: Logger;
 }
 
@@ -119,7 +119,7 @@ export class Uploader {
   #markVerified(b: BatchRow, key: Hex) {
     this.#o.journal.atomically(() => {
       this.#o.journal.updateBatch(b.seqFrom, { state: "verified", entityKey: key });
-      this.#o.onVerified?.(b, key);
+      this.#o.onVerified?.(b, key, this.#request(b));
     });
   }
 

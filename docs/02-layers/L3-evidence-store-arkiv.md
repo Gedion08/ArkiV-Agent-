@@ -375,6 +375,10 @@ CREATE INDEX ee_attrs ON evidence_entities USING gin (attrs jsonb_path_ops);
 - `put` is a single INSERT (idempotent on `idempotency_key`).
 - uint64 attributes are stored as jsonb numbers (exact numerics) so `attrs->k` compares and orders numerically; clients read them back as bigints from the source text, never via floats. `created_at`/`expires_at` come from the store's injected clock, and blocks are simulated as `epoch_ms / 2000`.
 - **Mirror mode** (`store.mirror: postgres`): the recorder writes to the primary (Arkiv), then the mirror. The mirror is a read fallback for the dashboard and the source for re-creating entities after an Arkiv rollback.
+  - Every entity the primary confirmed (batches, delegations, the agent profile, keygrants) is journaled in `mirror_queue` with its full `PutRequest`: a batch in the same SQLite transaction that marks it `verified`; a statement right after its write confirms (a crash before the caller's mark re-runs the write and re-queues it, which is harmless).
+  - The recorder's `Mirror` worker copies the queue in order on every tick and `flush()`, with the same idempotency key and expiry as the primary, so a re-sent copy is the same entity. It reads each copy back: different bytes under our id (a reused or diverged mirror DB) is `MIRROR_MISMATCH` and the row stays queued.
+  - Fail-open: the primary path never waits on the mirror. After a failure the whole mirror pauses for `min(1 s·2^attempts, 1 h)`; rows are never dropped, since they are the rollback source.
+  - The host injects the mirror store (`upload.mirror`); with `store.mirror` set and none injected, the recorder logs `MIRROR_UNCONFIGURED` and queues nothing.
 - A Postgres store gives **no third-party guarantees** by itself. Verification relies on signatures + Base anchors, which still hold.
 
 ## 10. Memory implementation

@@ -6,7 +6,7 @@ import { dirname } from "node:path";
 import { Worker } from "node:worker_threads";
 import { AfrError, type RecordBodyV1, type RecordHeaderV1, ZERO_HASH } from "@afr/core";
 import { aesGcmOpen, type EpochKek, openAtRest, sealAtRest } from "@afr/crypto";
-import type { WriteEntry, WriteJournal } from "@afr/store";
+import type { PutRequest, WriteEntry, WriteJournal } from "@afr/store";
 import Database from "better-sqlite3";
 import { concat, type Hex, numberToBytes, stringToBytes, toBytes } from "viem";
 
@@ -61,9 +61,27 @@ const MIGRATIONS: string[] = [
   // v3 (P2-12): who signed each delegation and its published entity (batches wait for it, L2 §9)
   `ALTER TABLE session_keys ADD COLUMN delegator TEXT;
    ALTER TABLE session_keys ADD COLUMN delegation_entity TEXT;`,
+  // v4 (P2-15): entities confirmed on the primary store, waiting to be copied to the mirror (L3 §9)
+  `CREATE TABLE mirror_queue (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, schema TEXT NOT NULL, attrs TEXT NOT NULL,
+     payload BLOB NOT NULL, opts TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+     next_attempt_at INTEGER NOT NULL, created_at INTEGER NOT NULL);`,
 ];
 
 export type NoticeKind = "checkpoint" | "tx_intent" | "delegation";
+
+export interface MirrorRow {
+  id: number;
+  req: PutRequest;
+  attempts: number;
+}
+
+// uint64 attributes are bigints: tagged in the journal's JSON, so they come back exact
+const bigintTag = (_k: string, v: unknown) => (typeof v === "bigint" ? { $u: v.toString() } : v);
+const bigintUntag = (_k: string, v: unknown) =>
+  v && typeof v === "object" && Object.keys(v).length === 1 && "$u" in v
+    ? BigInt((v as { $u: string }).$u)
+    : v;
 
 export interface NoticeRow {
   id: number;
@@ -327,6 +345,69 @@ export class Journal {
     this.#db.transaction(() => {
       for (const id of ids) up.run(nextAttemptAt, id);
     })();
+  }
+
+  /** L3 §9 mirror: an entity the primary confirmed, to be written to the mirror store too. */
+  enqueueMirror(req: PutRequest): void {
+    const now = this.#now();
+    const e = req.expiresAt;
+    const opts = {
+      expiresAt: "days" in e ? { days: e.days } : { dateMs: e.date.getTime() },
+      readonly: req.readonly,
+      permissionlessExtension: req.permissionlessExtension,
+      lock: req.lock,
+      idempotencyKey: req.idempotencyKey,
+    };
+    this.#db
+      .prepare(
+        "INSERT INTO mirror_queue (schema, attrs, payload, opts, next_attempt_at, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        req.schema,
+        JSON.stringify(req.attrs, bigintTag),
+        req.payload,
+        JSON.stringify(opts),
+        now,
+        now,
+      );
+  }
+
+  dueMirrors(nowMs: number, limit = 50): MirrorRow[] {
+    return (
+      this.#db
+        .prepare("SELECT * FROM mirror_queue WHERE next_attempt_at <= ? ORDER BY id LIMIT ?")
+        .all(nowMs, limit) as Record<string, string | number | Uint8Array>[]
+    ).map((r) => {
+      const o = JSON.parse(r.opts as string);
+      return {
+        id: r.id as number,
+        attempts: r.attempts as number,
+        req: {
+          schema: r.schema,
+          attrs: JSON.parse(r.attrs as string, bigintUntag),
+          payload: new Uint8Array(r.payload as Uint8Array),
+          expiresAt: "days" in o.expiresAt ? o.expiresAt : { date: new Date(o.expiresAt.dateMs) },
+          readonly: o.readonly,
+          permissionlessExtension: o.permissionlessExtension,
+          lock: o.lock,
+          idempotencyKey: o.idempotencyKey,
+        } as PutRequest,
+      };
+    });
+  }
+
+  deleteMirror(id: number): void {
+    this.#db.prepare("DELETE FROM mirror_queue WHERE id = ?").run(id);
+  }
+
+  retryMirror(id: number, nextAttemptAt: number): void {
+    this.#db
+      .prepare("UPDATE mirror_queue SET attempts = attempts + 1, next_attempt_at = ? WHERE id = ?")
+      .run(nextAttemptAt, id);
+  }
+
+  mirrorSize(): number {
+    return (this.#db.prepare("SELECT count(*) AS n FROM mirror_queue").get() as { n: number }).n;
   }
 
   /** created_at of the oldest batch not yet verified (heartbeat `store_lag_s`). */

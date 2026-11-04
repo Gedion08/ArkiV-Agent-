@@ -9,7 +9,7 @@ import { type EvidenceStore, type Expiry, encodeCanonical } from "@afr/store";
 import { concat, encodeAbiParameters, type Hex, keccak256 } from "viem";
 import type { Journal } from "./journal.js";
 import type { SessionKey } from "./keys.js";
-import { putOnce } from "./statements.js";
+import { type OnConfirmed, putOnce } from "./statements.js";
 
 /** L4 §12 `sealKeygrant`: HPKE base mode to the reader's X25519 key (enc 32 B, ct 48 B). */
 export type KeygrantSealer = (
@@ -107,6 +107,7 @@ export interface PublishGrantsOptions {
   session: SessionKey;
   sealKeygrant?: KeygrantSealer;
   expiresAt: Expiry;
+  mirror?: OnConfirmed;
 }
 
 /** Idempotency key per (agent, epoch, reader): one keygrant entity each. */
@@ -142,17 +143,21 @@ export async function publishKeygrants(o: PublishGrantsOptions): Promise<void> {
         encHash: keccak256(concat([enc, ct])),
       };
       const sig = await o.session.signStatement("KeyGrant", statement);
-      await putOnce(store, {
-        schema: "afr.keygrant.v1",
-        attrs: { agent_key: agentKey, epoch_id: BigInt(e.epochId), reader, kek_id: kek.kekId },
-        payload: encodeCanonical({ enc, ct, statement, sig }),
-        expiresAt: o.expiresAt,
-        // L4 §5: deletable by the writer for crypto-shredding (§8)
-        readonly: true,
-        lock: false,
-        permissionlessExtension: false,
-        idempotencyKey,
-      });
+      await putOnce(
+        store,
+        {
+          schema: "afr.keygrant.v1",
+          attrs: { agent_key: agentKey, epoch_id: BigInt(e.epochId), reader, kek_id: kek.kekId },
+          payload: encodeCanonical({ enc, ct, statement, sig }),
+          expiresAt: o.expiresAt,
+          // L4 §5: deletable by the writer for crypto-shredding (§8)
+          readonly: true,
+          lock: false,
+          permissionlessExtension: false,
+          idempotencyKey,
+        },
+        o.mirror,
+      );
       journal.markReaderGranted(e.epochId, reader);
     }
   }
