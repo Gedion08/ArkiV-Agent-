@@ -18,6 +18,30 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 
 ## Session entries
 
+### 2026-11-04: API container (P3-12 follow-up)
+- `apps/api/src/main.ts`:
+  - `readApiEnv` validates every setting before connecting; a misconfiguration is `CONFIG`.
+  - `startApi` migrates (advisory-locked), then listens on `PORT` (8080).
+  - KMS envelope key via `AFR_KMS_ENVELOPE_KEY_ID`, or `AFR_API_LOCAL_KEK` for dev. Optional: dashboard origin, Redis, SMTP, SIWE RPC.
+  - SIGTERM drains the server, then the pool. Errors print only their code.
+  - New `start` script.
+- `GET /healthz` (L11 §2 note): liveness only. No DB check, no rate limit, hidden from OpenAPI, so `packages/client/openapi.json` is unchanged.
+- Images: `infra/docker/anchor.Dockerfile` → `service.Dockerfile` with `--build-arg APP=anchor|api`.
+- Staging Terraform:
+  - API at 2 tasks;
+  - new vars `siwe_domain` (required), `dashboard_origin` and `api_image_tag` (now required);
+  - no Redis yet (per-task rate limits, noted).
+- Tests (`apps/api/test/main.test.ts`):
+  - env validation;
+  - 30 `/healthz` calls with an unreachable DB all return 200, and the route isn't in OpenAPI;
+  - with `AFR_PG_URL`: a real start migrates a fresh schema, serves `/healthz` and `/v1/auth/nonce`, and closes cleanly;
+  - an unreachable DB fails the start.
+- Checked locally:
+  - the `APP=api` image (519 MB, uid 1000, no `.env`): no config → `CONFIG`, exit 1;
+  - against compose Postgres it migrates, serves `/healthz` and `/v1/auth/nonce` (200), and `docker stop` exits 0;
+  - `terraform fmt`/`validate` still pass.
+- Load flake seen in a full `pnpm verify`: the recorder's "background checkpointer keeps the WAL from growing" test waits 2.5 s and lost under a parallel Docker build. It passes alone and was left unchanged.
+
 ### 2026-11-04: P3-12 KMS signer + staging Terraform
 - `apps/anchor/src/kms.ts` (L5 §3.3 note): `kmsAccount(awsKms(KMSClient, keyId))` gives a viem account that signs transactions, typed data and messages through KMS `Sign` (DIGEST) with strict DER parsing, low-s and `v` by recovery. `main` uses it when `AFR_ANCHOR_KMS_KEY_ID` is set.
   - `@aws-sdk/client-kms` 3.1161.0 is now a dependency of `@afr/anchor` and a devDependency of `@afr/e2e`. It was already pinned in `apps/api`, so nothing new comes from npm.

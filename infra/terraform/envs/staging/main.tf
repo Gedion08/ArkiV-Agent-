@@ -29,14 +29,23 @@ variable "anchor_image_tag" {
 }
 
 variable "api_image_tag" {
-  type    = string
-  default = "unused"
+  type = string
 }
 
 variable "api_desired_count" {
-  # shortcut: apps/api has no container entrypoint or /healthz yet; raise this when it does
   type    = number
-  default = 0
+  default = 2 # L11 §2: 2+ tasks behind the ALB
+}
+
+variable "siwe_domain" {
+  description = "The dashboard host SIWE messages must name (e.g. app.staging.afr.dev)."
+  type        = string
+}
+
+variable "dashboard_origin" {
+  description = "https origin of the dashboard: the only CORS origin. null = same-origin only."
+  type        = string
+  default     = null
 }
 
 variable "alert_email" {
@@ -247,10 +256,16 @@ module "api" {
   desired_count = var.api_desired_count
   cpu           = 512
   memory        = 1024
-  environment = {
-    AFR_KMS_ENVELOPE_KEY_ID = module.kms.envelope_key_arn
-    AWS_REGION              = var.region
-  }
+  # shortcut: no AFR_REDIS_URL yet, so each task rate-limits on its own (L8 §7); add ElastiCache with the cdn module
+  environment = merge(
+    {
+      AFR_KMS_ENVELOPE_KEY_ID = module.kms.envelope_key_arn
+      AFR_SIWE_DOMAIN         = var.siwe_domain
+      AWS_REGION              = var.region
+      PORT                    = "8080"
+    },
+    var.dashboard_origin == null ? {} : { AFR_DASHBOARD_ORIGIN = var.dashboard_origin },
+  )
   secrets = {
     AFR_PG_URL = aws_secretsmanager_secret.this["api/pg-url"].arn
   }

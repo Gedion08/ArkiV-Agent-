@@ -11,14 +11,17 @@ Nothing here runs in CI. An operator plans and applies by hand from an AWS sessi
    cp infra/terraform/envs/staging/backend.hcl.example infra/terraform/envs/staging/backend.hcl
    terraform -chdir=infra/terraform/envs/staging init -backend-config=backend.hcl
    ```
-2. **Image.** Build the anchor image and push it to the `afr/anchor` ECR repo. Tags are immutable, so use the git sha.
+2. **Images.** Build the anchor and api images and push them to the `afr/anchor` and `afr/api` ECR repos. Tags are immutable, so use the git sha.
    ```bash
-   docker build -f infra/docker/anchor.Dockerfile -t afr/anchor:$(git rev-parse --short HEAD) .
+   docker build -f infra/docker/service.Dockerfile --build-arg APP=anchor -t afr/anchor:$(git rev-parse --short HEAD) .
+   ```
+   ```bash
+   docker build -f infra/docker/service.Dockerfile --build-arg APP=api -t afr/api:$(git rev-parse --short HEAD) .
    ```
    The repo doesn't exist until the first apply, so apply once with `-target=aws_ecr_repository.this` first, then push.
 3. **Plan and apply.**
    ```bash
-   terraform -chdir=infra/terraform/envs/staging plan -var certificate_arn=arn:aws:acm:… -var anchor_image_tag=<sha> -out tfplan
+   terraform -chdir=infra/terraform/envs/staging plan -var certificate_arn=arn:aws:acm:… -var anchor_image_tag=<sha> -var api_image_tag=<sha> -var siwe_domain=app.staging.example -out tfplan
    terraform -chdir=infra/terraform/envs/staging apply tfplan
    ```
 4. **Secrets.** Fill each `afr-staging/*` secret with `aws secretsmanager put-secret-value`. Type the values yourself: the PG URL, the Base Sepolia RPC URL, the Arkiv access key and the Arkiv writer key.
@@ -42,6 +45,7 @@ These rules need CloudTrail management events in the account, for example from a
 
 ## Shortcuts
 
-- **API:** `api_desired_count` defaults to 0 because `apps/api` has no container entrypoint or `/healthz` route yet.
+- **API rate limits:** no Redis yet, so each API task counts its own requests (L8 §7).
+- **API migrations:** the API runs them at startup, serialised by an advisory lock. A migration that breaks the running version needs an expand/contract rollout.
 - **Database login:** services connect with password URLs from Secrets Manager. The RDS instance has IAM auth enabled, but token auth isn't wired into the services.
 - **Not modelled yet:** NAT egress allowlisting, WAF and CloudFront (`cdn`), and the `observability` module.

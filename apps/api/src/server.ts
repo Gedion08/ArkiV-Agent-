@@ -14,6 +14,7 @@ import {
   serializerCompiler,
   validatorCompiler,
 } from "fastify-type-provider-zod";
+import { z } from "zod";
 import {
   ApiError,
   type ApiOptions,
@@ -109,6 +110,16 @@ export async function buildServer(o: ApiOptions): Promise<FastifyInstance> {
     }
     req.user = { id: s.user_id, wallet: bufHex(s.wallet) };
   };
+
+  // ALB liveness (L11 §2). No DB check: an RDS failover must not make the ALB drain every task at once.
+  app.get(
+    "/healthz",
+    {
+      config: { rateLimit: false },
+      schema: { hide: true, response: { 200: z.strictObject({ status: z.literal("ok") }) } },
+    },
+    async () => ({ status: "ok" as const }),
+  );
 
   const ctx = { ...o, now, requireUser, secrets };
   await app.register(authRoutes, ctx);
