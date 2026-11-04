@@ -267,6 +267,22 @@ importers:
       '@afr/recorder':
         specifier: workspace:*
         version: link:../../packages/recorder
+    devDependencies:
+      '@afr/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
+      '@afr/log':
+        specifier: workspace:*
+        version: link:../../packages/log
+      '@afr/store':
+        specifier: workspace:*
+        version: link:../../packages/store
+      '@afr/verifier':
+        specifier: workspace:*
+        version: link:../../packages/verifier
+      viem:
+        specifier: 2.57.7
+        version: 2.57.7(typescript@6.0.3)(zod@4.6.7)
 
   apps/dashboard: {}
 
@@ -352,6 +368,12 @@ importers:
       '@afr/core':
         specifier: workspace:*
         version: link:../core
+      '@hpke/core':
+        specifier: 1.9.0
+        version: 1.9.0
+      '@hpke/dhkem-x25519':
+        specifier: 1.8.0
+        version: 1.8.0
       '@noble/ciphers':
         specifier: 2.4.0
         version: 2.4.0
@@ -459,7 +481,20 @@ importers:
         specifier: 2.57.7
         version: 2.57.7(typescript@6.0.3)(zod@4.6.7)
 
-  packages/verifier: {}
+  packages/verifier:
+    dependencies:
+      '@afr/core':
+        specifier: workspace:*
+        version: link:../core
+      '@afr/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      '@afr/store':
+        specifier: workspace:*
+        version: link:../store
+      viem:
+        specifier: 2.57.7
+        version: 2.57.7(typescript@6.0.3)(zod@4.6.7)
 
 packages:
 
@@ -761,6 +796,18 @@ packages:
     engines: {node: '>=20'}
     peerDependencies:
       hono: ^4 || ^5.0.0-0
+
+  '@hpke/common@1.11.0':
+    resolution: {integrity: sha512-ZV551VgT4+pjTN1xlM1Zu9CrvLcff1sV1F2iFQJgg3gVNLy/hiOgLOjK3cz5LZYMKYkt54xe7ityu0rTYVSDGw==}
+    engines: {node: '>=16.0.0'}
+
+  '@hpke/core@1.9.0':
+    resolution: {integrity: sha512-pFxWl1nNJeQCSUFs7+GAblHvXBCjn9EPN65vdKlYQil2aURaRxfGMO6vBKGqm1YHTKwiAxJQNEI70PbSowMP9Q==}
+    engines: {node: '>=16.0.0'}
+
+  '@hpke/dhkem-x25519@1.8.0':
+    resolution: {integrity: sha512-S1MWWkAfu+TFxySgv5+2P3O4Mx/jk7BsoplzQaA1s3sfUJVJ2UsZsSzSsMc+FXJumLXncoJFlO6mK6mDGspfmA==}
+    engines: {node: '>=16.0.0'}
 
   '@ioredis/commands@2.0.0':
     resolution: {integrity: sha512-vrx0AE/T0h7cRZwfo1M39Cr+ZhZrkf0V8mQN75wucKCxCLD9l/VX6no3gFvrLqD1IlG/1LtzWovqEw3t0Vr9zg==}
@@ -2764,6 +2811,16 @@ snapshots:
   '@hono/node-server@2.1.5(hono@4.13.14)':
     dependencies:
       hono: 4.13.14
+
+  '@hpke/common@1.11.0': {}
+
+  '@hpke/core@1.9.0':
+    dependencies:
+      '@hpke/common': 1.11.0
+
+  '@hpke/dhkem-x25519@1.8.0':
+    dependencies:
+      '@hpke/common': 1.11.0
 
   '@ioredis/commands@2.0.0': {}
 

@@ -8,7 +8,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 |---|---|---|
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
-| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps), P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓ | Blocked: P2-07 part 2 (HPKE deps). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). Not started: P2-16 |
+| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓ | Exit demo on Rabdi pending (needs writes). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
 | P3 Anchor + verify | not started | |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
@@ -17,6 +17,47 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P2-07 part 2 (HPKE keygrants, .afrkey) + P2-16 decrypt-agent
+- Deps (approved): `@hpke/core` 1.9.0, `@hpke/dhkem-x25519` 1.8.0 in `@afr/crypto`, exact pins.
+- `@afr/crypto`:
+  - `sealKeygrant` / `openKeygrant` (L4 §5): async, using the noble-backed X25519 KEM. Open checks the kek_id.
+  - `generateReaderKey`.
+  - `.afrkey` `exportReaderBackup` / `importReaderBackup` (L4 §6), with argon2id from the already-installed `@noble/hashes`.
+  - Tests (`keygrant.test.ts`, 7):
+    - K4: the RFC 9180 A.1 vector gives the exact `enc` and `ct` bytes.
+    - Seal/open round trip. A wrong reader, epoch, kek_id or agent gives HPKE_OPEN_FAILED; a lying kek_id gives KEK_ID_MISMATCH.
+    - K6: backup round trip, BACKUP_PASSPHRASE on a wrong passphrase, the L4 defaults, and malformed files or swapped pubs refused.
+- Recorder: `KeygrantSealer` may return a Promise, so `sealKeygrant` from `@afr/crypto` plugs into `UploadOptions.sealKeygrant`.
+- `@afr/verifier` `decryptAgent({store, agentKey, lane, reader, writers?})`, the precursor of L7, which:
+  - lists batches (equivocation-checked) and checks each frame, its attrs and `batch_sig`;
+  - checks seq continuity, `prev_chain_root` links, `batch_root` and `chain_root`;
+  - opens each epoch's keygrant (statement, `encHash` and the session-key signature checked);
+  - decrypts, then runs `verifyRecords` (hash, links, signatures) and `verifyBody` (commitments).
+- `tools/scripts/decrypt-agent.ts`: `keygen --out x.afrkey` and `decrypt --agent … --reader-key … [--lane] [--writer]… [--out]`.
+  - Read-only Arkiv: a throwaway account with a zero spend cap.
+  - Passphrase from `AFR_READER_PASSPHRASE` or a hidden prompt.
+  - Plaintext only goes to `--out` (0600, never overwritten); stdout gets the summary and findings.
+  - Errors print codes only, since viem errors can carry the keyed RPC URL.
+- Tests (`apps/cli/test/decrypt-agent.test.ts`, 4):
+  - A recorder with a configured reader goes through MemoryStore and the script: every batch decrypts with no findings, seqs are contiguous to `session_end`, the canary appears only in `--out`.
+  - A stranger reader gives NO_KEYGRANT.
+  - A tampered ct gives FRAME_INVALID.
+  - keygen writes a 0600 file with L4 parameters and refuses weak passphrases and overwrites.
+  - Smoke run against Rabdi (read-only): keygen + decrypt ran clean (0 batches for the test agent).
+- shortcuts:
+  - Delegation validity behind session keys, profile writers and anchors aren't checked (full verifier, P3).
+  - One lane per run.
+  - Records are held in memory.
+  - K1 `crypto.json` vectors are still not generated.
+  - The exit demo against Rabdi with a configured reader isn't run: it needs real writes (gas) and your go-ahead.
+- ERC-6492 attack cases added to `apps/api/test/siwe-1271.test.ts` (6 tests now), all 401 rather than 503, with nothing deployed:
+  - the intruder's own wallet deployed through the same factory while claiming the victim's address;
+  - calldata the factory rejects, and a "factory" with no code;
+  - a magic-suffixed wrapper that doesn't decode;
+  - no `siweClient` configured.
+  - Also checked: after the wallet is really deployed, plain 1271 and the wrapper both log in as the same user. No code changes were needed.
+- Next: P2 exit demo (recorder → Rabdi → decrypt-agent), then the P2 definition-of-done items.
 
 ### 2026-11-04: apps/api hardening, part 2 (closes the remaining hardening shortcuts)
 - Rate limits on Redis (`ApiOptions.redis`, ioredis 6.0.0, `skipOnError`). Redis 7.4.6 added to compose; `AFR_REDIS_URL` and `AFR_SMTP_URL` are in turbo's test env.

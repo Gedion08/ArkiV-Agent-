@@ -1,6 +1,6 @@
 // L4 §3, §4, §10 + at-rest sealing. Layouts are cross-checked against independent implementations
 // (ethers ABI coder, node:crypto AES-GCM and HMAC) so a self-consistent layout bug can't pass.
-// shortcut: K1 fixed vectors (crypto.json) wait for HPKE, since that file also carries keygrant enc‖ct.
+// shortcut: K1 fixed vectors (crypto.json, incl. keygrant enc‖ct) not generated yet; needs a test-vectors PR.
 import { createDecipheriv, createHmac } from "node:crypto";
 import { AbiCoder, concat as eConcat, keccak256 as eKeccak, toUtf8Bytes } from "ethers";
 import type { Hex } from "viem";

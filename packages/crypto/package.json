@@ -21,6 +21,8 @@
   },
   "dependencies": {
     "@afr/core": "workspace:*",
+    "@hpke/core": "1.9.0",
+    "@hpke/dhkem-x25519": "1.8.0",
     "@noble/ciphers": "2.4.0",
     "@noble/hashes": "2.4.0",
     "viem": "2.57.7"

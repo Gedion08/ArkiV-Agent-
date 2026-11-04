@@ -11,12 +11,12 @@ import type { Journal } from "./journal.js";
 import type { SessionKey } from "./keys.js";
 import { type OnConfirmed, putOnce } from "./statements.js";
 
-/** L4 §12 `sealKeygrant`: HPKE base mode to the reader's X25519 key (enc 32 B, ct 48 B). */
+/** L4 §12 `sealKeygrant` (`@afr/crypto`): HPKE base mode to the reader's X25519 key (enc 32 B, ct 48 B). */
 export type KeygrantSealer = (
   kek: EpochKek,
   readerPub: Hex,
   agentKey: Hex,
-) => { enc: Uint8Array; ct: Uint8Array };
+) => { enc: Uint8Array; ct: Uint8Array } | Promise<{ enc: Uint8Array; ct: Uint8Array }>;
 
 /** One seal() may wrap up to ~1,000 DEKs; rotate well before the L4 §4 IV budget. */
 const WRAP_MARGIN = 4096;
@@ -134,7 +134,7 @@ export async function publishKeygrants(o: PublishGrantsOptions): Promise<void> {
     const kek = journal.epochKek(e.epochId);
     for (const reader of todo) {
       const idempotencyKey = keygrantId(agentKey, e.epochId, reader);
-      const { enc, ct } = o.sealKeygrant(kek, reader, agentKey);
+      const { enc, ct } = await o.sealKeygrant(kek, reader, agentKey);
       const statement = {
         agentKey,
         epochId: e.epochId,

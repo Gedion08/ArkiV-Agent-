@@ -83,7 +83,7 @@ export interface RecorderStatus {
 /** Batching + upload (L2 §9). Without it the recorder only journals (P1 behaviour). */
 export interface UploadOptions {
   store: EvidenceStore;
-  /** L4 §5 HPKE sealer; required once `encryption.readers` is non-empty (uploads wait without it). */
+  /** L4 §5 HPKE sealer (`sealKeygrant` from `@afr/crypto`); required once `encryption.readers` is non-empty (uploads wait without it). */
   sealKeygrant?: KeygrantSealer;
   watchKey?: Uint8Array;
   approvalThresholdCents?: bigint;

@@ -97,8 +97,8 @@ ReaderKey EIP-712 { owner: address, x25519: bytes32, label: string, notAfter: ui
 ```
 
 - Generated in the browser: WebCrypto `X25519` where available (non-extractable private key in IndexedDB), else `@noble/curves` x25519 kept only inside an encrypted backup.
-- **Backup file** `.afrkey` (JSON): `{ v:1, x25519_pub, kdf:"argon2id", m:65536, t:3, p:1, salt, iv, ct }`. `ct` = AES-GCM(Argon2id(passphrase), secret). Users must download it on creation (UI forces acknowledgement).
-- CLI: `fr keys reader new --out auditor.afrkey`, `fr keys reader import`.
+- **Backup file** `.afrkey` (JSON): `{ v:1, x25519_pub, kdf:"argon2id", m:65536, t:3, p:1, salt, iv, ct }`. `ct` = AES-GCM(Argon2id(passphrase), secret), no AAD; `secret` is the raw 32-byte X25519 private key, and import checks that it opens a seal to `x25519_pub`. Users must download it on creation (UI forces acknowledgement). Argon2id comes from `@noble/hashes` (already a dependency) rather than `hash-wasm`. Import bounds the cost parameters (`m` ≤ 1 GiB, `t` ≤ 10, `p` ≤ 4), so a crafted file can't stall a reader.
+- CLI: `fr keys reader new --out auditor.afrkey`, `fr keys reader import`. Until then, `tools/scripts/decrypt-agent.ts keygen --out <file>` creates one (P2-16).
 - Published as `afr.readerkey.v1` (optional, so auditors can be discovered) and registered with the API.
 - **Not** derived from wallet signatures. Signature-derived keys can be phished by tricking a user into signing the derivation message.
 
@@ -178,12 +178,12 @@ encryptBatch(plain: Uint8Array, ctx: BatchCtx, kek: EpochKek): { ct, iv, wrapped
 decryptBatch({ ct, iv, wrappedDek, epochId, kekId }, ctx: BatchCtx, kek: EpochKek): Uint8Array   // epochId/kekId as the frame declares; verifies AAD
 // keks
 newEpochKek(agentKey, epochId): EpochKek                           // {epochId, kekId, key: Uint8Array}; kekIdFor(agentKey, epochId, key)
-sealKeygrant(kek, readerPub, agentKey): { enc, ct }
-openKeygrant(grant, readerPriv, agentKey): EpochKek                // verifies kek_id
+sealKeygrant(kek, readerPub, agentKey): Promise<{ enc, ct }>      // @hpke/core + @hpke/dhkem-x25519 (noble X25519)
+openKeygrant({ enc, ct, epochId, kekId }, readerPriv, agentKey): Promise<EpochKek>   // verifies kek_id
 // readers
-generateReaderKey(): Promise<{ pub: Hex; priv: CryptoKey | Uint8Array }>
-exportReaderBackup(priv, passphrase): Promise<AfrKeyFile>
-importReaderBackup(file, passphrase): Promise<ReaderKey>
+generateReaderKey(): Promise<{ pub: Hex; priv: Uint8Array }>     // raw keys; WebCrypto non-extractable keys: dashboard (L9)
+exportReaderBackup({ pub, priv }, passphrase): Promise<AfrKeyFile>
+importReaderBackup(file, passphrase): Promise<ReaderKey>        // { pub, priv }
 // watch
 txCommit(watchKey, chainId, txHash): Hex; userOpCommit(...): Hex; nonceCommit(...): Hex
 // journal
