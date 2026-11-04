@@ -1584,6 +1584,13 @@ export interface paths {
                             policy: null;
                             approval_threshold_cents: string | null;
                             privacy_level: number;
+                            anchored: {
+                                lane: number;
+                                seq_to: string;
+                                epoch: string;
+                                anchor_tx: string;
+                                chain_root: string;
+                            }[];
                         };
                     };
                 };

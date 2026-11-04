@@ -273,6 +273,7 @@ describe.skipIf(!URL)("apps/api v0", () => {
       policy: null,
       approval_threshold_cents: "10000",
       privacy_level: 0,
+      anchored: [],
     });
     const signed = signRecorderRequest(key.key, "GET", "/v1/recorder/config", "", nowS());
     const cached = await app.inject({

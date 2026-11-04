@@ -194,7 +194,27 @@ importers:
         specifier: 4.1.12
         version: 4.1.12(@types/node@22.20.5)(vite@8.3.5(@types/node@22.20.5)(yaml@2.9.1))
 
-  apps/anchor: {}
+  apps/anchor:
+    dependencies:
+      '@afr/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@afr/log':
+        specifier: workspace:*
+        version: link:../../packages/log
+      '@afr/store':
+        specifier: workspace:*
+        version: link:../../packages/store
+      pg:
+        specifier: 8.23.1
+        version: 8.23.1
+      viem:
+        specifier: 2.57.7
+        version: 2.57.7(typescript@6.0.3)(zod@4.6.7)
+    devDependencies:
+      '@types/pg':
+        specifier: 8.23.1
+        version: 8.23.1
 
   apps/api:
     dependencies:
@@ -499,6 +519,30 @@ importers:
       '@afr/store':
         specifier: workspace:*
         version: link:../store
+      viem:
+        specifier: 2.57.7
+        version: 2.57.7(typescript@6.0.3)(zod@4.6.7)
+
+  tools/e2e:
+    devDependencies:
+      '@afr/anchor':
+        specifier: workspace:*
+        version: link:../../apps/anchor
+      '@afr/api':
+        specifier: workspace:*
+        version: link:../../apps/api
+      '@afr/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@afr/store':
+        specifier: workspace:*
+        version: link:../../packages/store
+      '@types/pg':
+        specifier: 8.23.1
+        version: 8.23.1
+      pg:
+        specifier: 8.23.1
+        version: 8.23.1
       viem:
         specifier: 2.57.7
         version: 2.57.7(typescript@6.0.3)(zod@4.6.7)

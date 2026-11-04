@@ -84,6 +84,18 @@ const MIGRATIONS: string[] = [
      PRIMARY KEY (agent_id, user_id));
    ALTER TABLE agent_auditors ENABLE ROW LEVEL SECURITY;
    CREATE POLICY tenant ON agent_auditors TO afr_app USING (org_id = afr_org()) WITH CHECK (org_id = afr_org());`,
+  // v4: anchoring (L5 §3.4, L8 §3 checkpoints columns). anchors + anchor_write_journal belong to the anchor
+  // service (no RLS: it connects as the owner role, never as afr_app).
+  `ALTER TABLE checkpoints ADD COLUMN anchor_epoch bigint, ADD COLUMN anchor_tx bytea, ADD COLUMN anchor_root bytea,
+     ADD COLUMN proof bytea[], ADD COLUMN checkpoint_entity bytea, ADD COLUMN anchored_at timestamptz,
+     ADD COLUMN reject_reason text;
+   CREATE INDEX checkpoints_status ON checkpoints (status, received_at);
+   CREATE TABLE anchors (root bytea PRIMARY KEY, chain_id bigint NOT NULL, contract bytea NOT NULL,
+     leaves jsonb NOT NULL, leaf_count int NOT NULL, manifest_key bytea, tx_hash bytea UNIQUE, raw_tx bytea,
+     epoch bigint, block_number bigint, block_time timestamptz, reason text,
+     status text NOT NULL CHECK (status IN ('building','manifest','sent','included','published','safe','finalized','failed')),
+     created_at timestamptz NOT NULL DEFAULT now(), UNIQUE (chain_id, contract, epoch));
+   CREATE TABLE anchor_write_journal (id text PRIMARY KEY, entry jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());`,
 ];
 
 /** Applies pending migrations, one transaction each; an advisory lock keeps concurrent starts serial. */

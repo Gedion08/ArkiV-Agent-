@@ -84,7 +84,8 @@ CREATE TABLE batches_index (agent_id uuid, lane int, seq_from numeric, seq_to nu
   PRIMARY KEY (agent_id, lane, seq_from));
 CREATE TABLE checkpoints (id uuid PK, agent_id uuid, lane int, seq_to numeric, chain_root bytea, batch_entity bytea,
   status text CHECK (status IN ('pending','validated','anchored','superseded','rejected')),
-  anchor_epoch bigint, anchor_tx bytea, proof bytea[], checkpoint_entity bytea, received_at timestamptz, anchored_at timestamptz,
+  anchor_epoch bigint, anchor_tx bytea, anchor_root bytea, proof bytea[], checkpoint_entity bytea, reject_reason text,
+  received_at timestamptz, anchored_at timestamptz,
   UNIQUE (agent_id, lane, seq_to));
 
 -- readers & grants
@@ -164,7 +165,7 @@ CREATE TABLE audit_log (id bigserial PK, org_id uuid, actor text, action text, t
 | POST | `/v1/recorder/intents` | `{items: [{lane, seq, chain_id, tx_commit?, nonce_commit}]}` → forwarded to the watcher (`NOTIFY`) |
 | POST | `/v1/recorder/checkpoints` | `{lane, seq_from, seq_to, batch_root, chain_root, entity_key, arkiv_tx}` |
 | POST | `/v1/recorder/delegations` | `{lane, session_key, not_before, not_after, entity_key, presigned_revocation?}` |
-| GET | `/v1/recorder/config` | `{readers: [x25519…], policy: {version, doc_hash, doc}, approval_threshold_cents, privacy_level}`. ETag-cached, polled every 60 s |
+| GET | `/v1/recorder/config` | `{readers: [x25519…], policy: {version, doc_hash, doc}, approval_threshold_cents, privacy_level, anchored: [{lane, seq_to, epoch, anchor_tx, chain_root}]}`. ETag-cached, polled every 60 s. `anchored` is the latest anchored checkpoint per lane of the key; the recorder marks its batches ≤ `seq_to` anchored (P3-06) |
 | POST | `/v1/recorder/approvals` | (v1) create an approval request → returns the id. Long-poll `GET /v1/recorder/approvals/{id}` |
 
 ### 4.5 Alerts
@@ -206,8 +207,8 @@ Retries: 10 attempts over 24 h with exponential backoff. Deliveries are logged.
 | Queue | Producer | Consumer | Notes |
 |---|---|---|---|
 | `notify` | watcher alert engine, approvals | notifier | Per-channel adapters, rate-limited (Slack 1/s/channel) |
-| `checkpoint.validated` | API | anchor service | |
-| `anchor.confirmed` | anchor service | API → recorder notices (via config poll) + webhooks | |
+| `checkpoint.validated` | API | anchor service | v0: `checkpoints.status` polled by the anchor service (L5 §3.4), no queue |
+| `anchor.confirmed` | anchor service | API → recorder notices (via config poll) + webhooks | v0: the anchor service writes `checkpoints` directly; recorders see it in `/v1/recorder/config`. Webhooks later |
 | `usage.rollup` | cron hourly | metering | `usage_events` → `usage_daily` → Stripe meter events |
 | `digest.weekly` | cron | email | Only metadata (counts, alerts, verify status). Value summaries need the browser |
 | `profile.renew` | cron daily | API | Reminds operators (agent profile expiry, identity key expiry) |

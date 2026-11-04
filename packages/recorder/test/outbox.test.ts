@@ -28,7 +28,10 @@ const capture = () => {
 };
 
 /** A fake API: verifies the L8 §2 signature, records calls, answers with `status()`. */
-function fakeApi(status: (c: Call) => number | "down" = () => 200) {
+function fakeApi(
+  status: (c: Call) => number | "down" = () => 200,
+  body: (c: Call) => { text: string; etag?: string } = () => ({ text: "{}" }),
+) {
   const calls: Call[] = [];
   const fetchFn: typeof fetch = async (url, init) => {
     const u = new URL(String(url));
@@ -39,14 +42,18 @@ function fakeApi(status: (c: Call) => number | "down" = () => 200) {
     };
     const ts = c.headers["x-afr-timestamp"] as string;
     const want = createHmac("sha256", recorderSecretHash(SECRET))
-      .update(recorderStringToSign("POST", c.path, ts, c.body))
+      .update(recorderStringToSign(init?.method ?? "GET", c.path, ts, c.body))
       .digest("hex");
     expect(c.headers["x-afr-signature"]).toBe(want);
     expect(c.headers.authorization).toBe(`Bearer ${TOKEN}`);
     const s = status(c);
     if (s === "down") throw new TypeError("fetch failed");
     calls.push(c);
-    return new Response("{}", { status: s });
+    const b = body(c);
+    return new Response(s === 304 ? null : b.text, {
+      status: s,
+      headers: b.etag ? { etag: b.etag } : {},
+    });
   };
   const of = (p: string) => calls.filter((c) => c.path === p).map((c) => JSON.parse(c.body));
   return { calls, fetchFn, of };
@@ -143,7 +150,7 @@ describe("P2-14 outbox → API", () => {
     expect(again.journal.outboxSize()).toBe(0);
     const seqs = api.of("/v1/recorder/checkpoints").map((c) => c.seq_from);
     expect(seqs).toEqual([...seqs].sort((a, b) => Number(a) - Number(b)));
-    expect(seqs.length).toBe(again.journal.batchCounts().verified);
+    expect(seqs.length).toBe(again.journal.batchCounts().notified);
     expect(logged.join()).toContain("OUTBOX_REJECTED"); // the 400 delegations were dropped
     await again.close();
   });
@@ -210,6 +217,39 @@ describe("P2-14 outbox → API", () => {
     await rec.flush();
     expect(api.calls.length).toBeGreaterThan(2);
     canary.assertAbsent(...api.calls.map((c) => c.body));
+    await rec.close();
+  });
+
+  test("config poll: batches up to the anchored seq_to → anchored; 304 keeps the cached config", async () => {
+    const tx = `0x${"ee".repeat(32)}`;
+    let seqTo = "0";
+    const api = fakeApi(
+      (c) =>
+        c.path === "/v1/recorder/config" && c.headers["if-none-match"] === '"v1"' ? 304 : 200,
+      (c) =>
+        c.path === "/v1/recorder/config"
+          ? {
+              text: JSON.stringify({
+                anchored: [
+                  { lane: 0, seq_to: seqTo, epoch: "1", anchor_tx: tx, chain_root: tx },
+                  { lane: 9, seq_to: "999", epoch: "1", anchor_tx: tx, chain_root: tx }, // other lane
+                ],
+              }),
+              etag: '"v1"',
+            }
+          : { text: "{}" },
+    );
+    const rec = await harness(api).start();
+    await rec.flush();
+    rec.capture({ type: "note", meta: { event: "x" }, body: { args: {} } });
+    await rec.flush();
+    const notified = rec.journal.batchCounts().notified ?? 0;
+    expect(notified).toBeGreaterThan(1);
+    seqTo = String(rec.journal.batch(0n)?.seqTo); // only the first batch is anchored
+    expect(await rec.pollConfig()).toBe(1);
+    expect(rec.journal.batchCounts()).toMatchObject({ anchored: 1, notified: notified - 1 });
+    expect(await rec.pollConfig()).toBe(0); // 304: same config, nothing left at or below seq_to
+    expect(api.calls.filter((c) => c.path === "/v1/recorder/config").length).toBe(2);
     await rec.close();
   });
 });

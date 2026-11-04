@@ -413,7 +413,9 @@ export class Journal {
   /** created_at of the oldest batch not yet verified (heartbeat `store_lag_s`). */
   oldestUnverifiedBatchAt(): number | undefined {
     const r = this.#db
-      .prepare("SELECT min(created_at) AS t FROM batches WHERE state != 'verified'")
+      .prepare(
+        "SELECT min(created_at) AS t FROM batches WHERE state NOT IN ('verified','notified','anchored','pruned')",
+      )
       .get() as { t: number | null };
     return r.t ?? undefined;
   }
@@ -548,6 +550,25 @@ export class Journal {
       | Record<string, unknown>
       | undefined;
     return r && toBatch(r);
+  }
+
+  /** verified → notified: the API accepted this batch's checkpoint notice (L2 §6 state machine). */
+  markNotified(seqFrom: bigint): void {
+    this.#db
+      .prepare(
+        "UPDATE batches SET state = 'notified', updated_at = ? WHERE seq_from = ? AND state = 'verified'",
+      )
+      .run(this.#now(), Number(seqFrom));
+  }
+
+  /** Every uploaded batch up to `seqTo` is covered by an anchored checkpoint (its chain_root commits to them). */
+  markAnchored(seqTo: bigint, anchorTx: Hex): number {
+    return this.#db
+      .prepare(
+        `UPDATE batches SET state = 'anchored', anchor_tx = ?, anchored_at = ?, updated_at = ?
+          WHERE seq_to <= ? AND state IN ('verified','notified')`,
+      )
+      .run(anchorTx, this.#now(), this.#now(), Number(seqTo)).changes;
   }
 
   batchCounts(): Partial<Record<BatchState, number>> {

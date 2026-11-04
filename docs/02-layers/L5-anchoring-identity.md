@@ -141,18 +141,25 @@ every 30 s:
 - IAM: only the anchor task role may call `kms:Sign` on that key. CloudTrail alerts on any other principal.
 - Nonce: single-instance service (leader lock via `pg_advisory_lock`). Nonce comes from the DB, reconciled against `getTransactionCount(pending)` on start.
 
-### 3.4 Database (shared Postgres, `anchor` schema)
+### 3.4 Database (shared Postgres, API schema, migration v4)
 
 ```sql
-CREATE TABLE anchor.anchors (
-  epoch bigint PRIMARY KEY, chain_id bigint NOT NULL, contract bytea NOT NULL,
-  root bytea NOT NULL UNIQUE, leaf_count int NOT NULL, manifest_key bytea NOT NULL,
-  tx_hash bytea NOT NULL, block_number bigint, block_time timestamptz,
-  status text NOT NULL CHECK (status IN ('sent','included','safe','finalized','failed')),
-  created_at timestamptz NOT NULL DEFAULT now()
+CREATE TABLE anchors (
+  root bytea PRIMARY KEY, chain_id bigint NOT NULL, contract bytea NOT NULL,
+  leaves jsonb NOT NULL, leaf_count int NOT NULL, manifest_key bytea,
+  tx_hash bytea UNIQUE, raw_tx bytea,              -- signed bytes journaled before broadcast (A5)
+  epoch bigint, block_number bigint, block_time timestamptz, reason text,
+  status text NOT NULL CHECK (status IN ('building','manifest','sent','included','published','safe','finalized','failed')),
+  created_at timestamptz NOT NULL DEFAULT now(), UNIQUE (chain_id, contract, epoch)
 );
--- checkpoints table lives in the API schema (L8); anchor service updates status/epoch/proof
+CREATE TABLE anchor_write_journal (id text PRIMARY KEY, entry jsonb NOT NULL, updated_at timestamptz);  -- WriterQueue (L3 §7)
+-- checkpoints lives in the API schema (L8 §3); the anchor service updates status/epoch/tx/proof/entity
 ```
+
+- Tables sit in the API's schema, not an `anchor` schema: one migration path, and per-run test schemas keep working.
+- The row exists before the tx (`building`, then `manifest`), so a crash at any step resumes from the row. `sent` keeps `raw_tx`; a restart rebroadcasts those bytes and never signs a second tx for one root.
+- The queue is `checkpoints.status` (`pending → validated → anchored|superseded|rejected`), polled every tick. pg-boss isn't used (one consumer, and the table is already the source of truth).
+- One leader: `pg_try_advisory_lock` on a dedicated connection (`apps/anchor/src/main.ts`). The service checks `isRecorder(signer)` on start and refuses to run without it.
 
 ### 3.5 Extension job (rolling expiry, v1)
 

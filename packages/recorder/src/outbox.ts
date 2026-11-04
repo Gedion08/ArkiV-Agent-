@@ -2,6 +2,7 @@
 // least once; the API dedupes by (kind, agent, lane, seq). Heartbeats are best effort, never queued.
 import { signRecorderRequest } from "@afr/crypto";
 import type { Logger } from "@afr/log";
+import type { Hex } from "viem";
 import type { Journal, NoticeKind, NoticeRow } from "./journal.js";
 
 const PATHS: Record<NoticeKind | "heartbeat", string> = {
@@ -24,6 +25,13 @@ export interface OutboxOptions {
   now: () => number;
   fetch?: typeof fetch;
   logger?: Logger;
+  /** Called after the API accepted a notice (checkpoint → batch `notified`). */
+  onDelivered?: (row: NoticeRow) => void;
+}
+
+/** The parts of `GET /v1/recorder/config` the recorder acts on. */
+export interface RecorderConfig {
+  anchored: { lane: number; seq_to: string; epoch: string; anchor_tx: Hex; chain_root: Hex }[];
 }
 
 type Outcome = "ok" | "rejected" | "retry";
@@ -115,8 +123,49 @@ export class Outbox {
           return sent; // the API is down or overloaded: wait out the backoff
         }
         journal.deleteNotices(ids);
-        if (outcome === "ok") sent += ids.length;
+        if (outcome === "ok") {
+          sent += ids.length;
+          for (const r of g.rows) this.#o.onDelivered?.(r);
+        }
       }
+    }
+  }
+
+  #etag: string | undefined;
+  #config: RecorderConfig | undefined;
+
+  /** ETag-cached config; undefined while the API is unreachable. Untrusted input: shape-checked. */
+  async config(): Promise<RecorderConfig | undefined> {
+    const url = new URL(`${this.#o.url.replace(/\/$/, "")}/v1/recorder/config`);
+    const headers = signRecorderRequest(
+      this.#o.token,
+      "GET",
+      url.pathname,
+      "",
+      Math.floor(this.#o.now() / 1000),
+    );
+    try {
+      const res = await this.#fetch(url, {
+        headers: { ...headers, ...(this.#etag ? { "if-none-match": this.#etag } : {}) },
+      });
+      if (res.status === 304) return this.#config;
+      if (!res.ok) return undefined;
+      const body = (await res.json()) as { anchored?: unknown };
+      const anchored = Array.isArray(body.anchored)
+        ? body.anchored.filter(
+            (a): a is RecorderConfig["anchored"][number] =>
+              typeof a?.lane === "number" &&
+              typeof a.seq_to === "string" &&
+              /^\d{1,20}$/.test(a.seq_to) &&
+              typeof a.anchor_tx === "string" &&
+              /^0x[0-9a-f]{64}$/.test(a.anchor_tx),
+          )
+        : [];
+      this.#config = { anchored };
+      this.#etag = res.headers.get("etag") ?? undefined;
+      return this.#config;
+    } catch {
+      return undefined;
     }
   }
 

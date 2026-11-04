@@ -1,0 +1,21 @@
+{
+  "name": "@afr/e2e",
+  "version": "0.0.0",
+  "description": "Cross-app integration tests (apps may not import each other; this package may)",
+  "private": true,
+  "license": "SEE LICENSE IN ../../LICENSE-APPS.md",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root . --config ../../vitest.config.ts"
+  },
+  "devDependencies": {
+    "@afr/anchor": "workspace:*",
+    "@afr/api": "workspace:*",
+    "@afr/core": "workspace:*",
+    "@afr/store": "workspace:*",
+    "pg": "8.23.1",
+    "@types/pg": "8.23.1",
+    "viem": "2.57.7"
+  }
+}

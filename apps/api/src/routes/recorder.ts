@@ -87,6 +87,10 @@ const Config = z.strictObject({
   policy: z.null(),
   approval_threshold_cents: z.string().nullable(),
   privacy_level: z.number().int(),
+  /** Latest anchored checkpoint per lane of this key (P3-06): the recorder marks batches ≤ seq_to anchored. */
+  anchored: z.array(
+    z.strictObject({ lane: Lane, seq_to: U64, epoch: U64, anchor_tx: Hex32, chain_root: Hex32 }),
+  ),
 });
 
 export const recorderRoutes: ZodPlugin<
@@ -299,11 +303,26 @@ export const recorderRoutes: ZodPlugin<
       { ...opts, schema: { response: { 200: Config, 304: z.null() } } },
       async (req, reply) => {
         const c = ctx(req);
+        const { rows } = await inOrg(pool, c.orgId, (q) =>
+          q.query(
+            `SELECT DISTINCT ON (lane) lane, seq_to::text, anchor_epoch::text AS epoch, anchor_tx, chain_root
+               FROM checkpoints WHERE agent_id = $1 AND lane = ANY($2) AND status = 'anchored'
+              ORDER BY lane, seq_to DESC`,
+            [c.agentId, c.lanes],
+          ),
+        );
         const config = {
           readers: [] as string[], // shortcut: reader keys + grants arrive with §4.7 (P6)
           policy: null,
           approval_threshold_cents: c.approvalThresholdCents,
           privacy_level: c.privacy,
+          anchored: rows.map((r) => ({
+            lane: r.lane as number,
+            seq_to: r.seq_to as string,
+            epoch: r.epoch as string,
+            anchor_tx: `0x${(r.anchor_tx as Buffer).toString("hex")}`,
+            chain_root: `0x${(r.chain_root as Buffer).toString("hex")}`,
+          })),
         };
         const etag = `"${sha256(jcsData(config)).toString("hex")}"`;
         reply.header("etag", etag);

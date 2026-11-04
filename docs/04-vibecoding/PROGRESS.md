@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓ | Next: P3-05 (apps/anchor). |
+| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓ | Next: P3-07 (verifier). The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -17,6 +17,32 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P3-05 `apps/anchor` + P3-06 API checkpoints → anchored
+- `apps/anchor` (L5 §3):
+  - `AnchorChain`: RecorderAnchor calls via a signer that is a viem Account. Locally signed tx; raw bytes and hash journaled before broadcast; inclusion is pending, unknown, dropped or reverted.
+  - `validateCheckpoint`: the batch entity exists; its attrs match; the frame decodes; `batch_sig` recovers to a frame session key that the recorder announced.
+  - `AnchorService.tick`: validate, then build (rewinds → BROKEN_CHAIN/EQUIVOCATION), then the manifest, then sign, journal, broadcast, then included, then `afr.checkpoint.v1` per leaf (CheckpointStatement signed by the anchor key, plus its proof), then published. After that, safe and finalized come from block tags.
+  - Arkiv writes use deterministic idempotency keys and reconcile before put.
+  - `PgAnchorDb`, `PgWriteJournal`.
+  - `main.ts`: env wiring, an `isRecorder` check on start, and `runAsLeader` (`pg_try_advisory_lock` on a dedicated connection, tick every 30 s).
+- `@afr/core`: `anchorProofs(leaves)`, one tree build for all proofs. The tick for 150 leaves went from 14 s to 1.7 s.
+- API: migration v4 (checkpoint anchor columns, `anchors`, `anchor_write_journal`); `/v1/recorder/config` has `anchored` per lane. OpenAPI and the client were regenerated.
+- Recorder: verified → `notified` on a delivered checkpoint notice. `pollConfig()` every 60 s marks batches ≤ the anchored `seq_to` as `anchored`.
+  - `outbox.test.ts` now expects `notified` where it expected `verified` (an intended state change).
+- Tests:
+  - `apps/anchor/test/anchor.anvil.test.ts`: A2 (50×3 → one tx, every proof passes `verify()` on-chain, statements recover to the anchor key), A3 (rewind rejected and alerted), forged/unannounced session keys, A5 (crash after sign and at broadcast → one tx, one manifest, no duplicates).
+  - New `tools/e2e` workspace package (`@afr/e2e`): apps may not import each other, so cross-app tests live here. It covers API notices → PG queue → anchor on anvil → config `anchored`, `PgWriteJournal`, and leader failover. It needs AFR_PG_URL and anvil.
+  - Recorder config poll test.
+- Doc edits: L3 (manifest `anchor_tx ""`/`epoch 0`, written before its tx), L5 §3.4 (real tables, statuses, no pg-boss, leader lock), L8 §3 and §4.4 (config `anchored`), L8 §5 (v0 has no queues).
+- Shortcuts (marked in code):
+  - Local key signer; KMS is P3-12.
+  - No fee-bump replacement after 3 blocks.
+  - Checkpoint entities are written one by one, not in executeBatch chunks of 20.
+  - The rolling extension job and the watcher alert feed aren't implemented; alerts are only logged.
+  - The delegation → operator check is left to the verifier.
+  - Arkiv-scan fallback for missed notices (L5 §3.1 item 1) isn't implemented.
+- Not verified: a real Base Sepolia anchor. The anchor-service key must be generated, then the admin calls `setRecorder(key, true)`.
 
 ### 2026-11-04: P3-04 `packages/identity` (ERC-8004 adapter)
 - Sources: `src/abis/README.md`. Repo erc-8004/erc-8004-contracts `b9e466c` (2026-08-15) and the Base docs. Checked on-chain: proxy, version 2.0.0, deploy block (SPIKES S11).

@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import {
   type AnchorLeaf,
   anchorProof,
+  anchorProofs,
   anchorRoot,
   batchDigest,
   batchProof,
@@ -101,6 +102,12 @@ describe("P3-01 anchor merkle (L1 §6)", () => {
     expect(sortAnchorLeaves(leaves)).toEqual(sorted);
     expect(anchorRoot(leaves)).toBe(oz.root);
     expect(anchorRoot([...leaves].reverse())).toBe(oz.root); // input order never matters
+  });
+
+  test("anchorProofs equals anchorProof per leaf, in sorted order", () => {
+    expect(anchorProofs(leaves)).toEqual(
+      sortAnchorLeaves(leaves).map((l) => anchorProof(leaves, l.agentKey, l.lane)),
+    );
   });
 
   test("every proof verifies; a forged seq_to, chain_root or lane fails", () => {

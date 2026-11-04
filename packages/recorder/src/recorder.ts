@@ -36,6 +36,10 @@ import { Uploader } from "./uploader.js";
 
 export const RECORDER_VERSION = "afr-recorder/0.1.0";
 const API_HEARTBEAT_MS = 30_000;
+/** L8 §4 `GET /v1/recorder/config` poll (P3-06: carries the latest anchored checkpoint). */
+const CONFIG_POLL_MS = 60_000;
+/** Uploaded: the uploader is done with these. */
+const DONE_STATES: string[] = ["verified", "notified", "anchored", "pruned"];
 const ROTATE_BEFORE_S = 600n;
 const VERIFY_TAIL = 100n;
 
@@ -140,6 +144,7 @@ export class Recorder {
   readonly #publishFailing = new Set<string>();
   #uploader: Uploader | undefined;
   #outbox: Outbox | undefined;
+  #lastConfigPollAt = 0;
   #mirror: Mirror | undefined;
   #lastApiHeartbeatAt = 0;
   #tick: NodeJS.Timeout | undefined;
@@ -235,6 +240,10 @@ export class Recorder {
           url: cfg.api.url,
           token,
           now: this.#now,
+          onDelivered: (r) => {
+            if (r.kind === "checkpoint")
+              this.journal.markNotified(BigInt(r.payload.seq_from as string));
+          },
           ...(u.apiFetch ? { fetch: u.apiFetch } : {}),
           ...(this.#log ? { logger: this.#log } : {}),
         });
@@ -356,7 +365,7 @@ export class Recorder {
           lane: this.lane,
           next_seq: this.#nextSeq.toString(),
           pending_batches: Object.entries(counts)
-            .filter(([state]) => state !== "verified")
+            .filter(([state]) => !DONE_STATES.includes(state))
             .reduce((n, [, c]) => n + (c ?? 0), 0),
           store_lag_s: oldest ? Math.max(0, Math.floor((this.#now() - oldest) / 1000)) : 0,
           key_not_after: this.#session.delegation.notAfter.toString(),
@@ -364,7 +373,19 @@ export class Recorder {
         })
         .catch(() => {});
     }
+    if (this.#now() - this.#lastConfigPollAt >= CONFIG_POLL_MS) {
+      this.#lastConfigPollAt = this.#now();
+      void this.pollConfig().catch(() => {});
+    }
     void ob.drain().catch(() => {});
+  }
+
+  /** Marks batches anchored from the API's config (L2 §6 notified → anchored). Returns how many moved. */
+  async pollConfig(): Promise<number> {
+    const cfg = await this.#outbox?.config();
+    const a = cfg?.anchored.find((x) => x.lane === this.lane);
+    if (!a) return 0;
+    return this.journal.markAnchored(BigInt(a.seq_to), a.anchor_tx);
   }
 
   /** The L2 §10 tx_intent for a tx_sign record (needs the watch key for its commitments). */

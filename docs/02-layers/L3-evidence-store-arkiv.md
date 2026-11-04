@@ -212,8 +212,10 @@ export const AnchorManifest = defineSchema("afr.anchor.v1", {
   anchor_tx:    str().indexed(),
   epoch:        u64().indexed(),         // contract's anchor counter
   leaf_count:   u64(),
-  manifest:     bytes(),                 // CBOR {leaves:[...], tree dump, contract, block}
+  manifest:     bytes(),                 // CBOR {anchor_root, chain_id, contract, leaves}
 });
+// The manifest is written before its anchor tx (its key goes into anchorRoot), so anchor_tx = "" and
+// epoch = 0 on it. The tx and epoch live on-chain (Anchored event) and on each afr.checkpoint.v1 (P3-05).
 
 export const Checkpoint = defineSchema("afr.checkpoint.v1", {
   agent_key:   str().indexed(),

@@ -83,6 +83,13 @@ export function anchorProof(leaves: readonly AnchorLeaf[], agentKey: Hex, lane: 
   return anchorTree(leaves).getProof(anchorValue(l)) as Hex[];
 }
 
+/** Every leaf's proof from one tree build, in sortAnchorLeaves order (each still looked up by value). */
+export function anchorProofs(leaves: readonly AnchorLeaf[]): Hex[][] {
+  const sorted = sortAnchorLeaves(leaves);
+  const tree = StandardMerkleTree.of(sorted.map(anchorValue), ANCHOR_LEAF);
+  return sorted.map((l) => tree.getProof(anchorValue(l)) as Hex[]);
+}
+
 export function verifyAnchorProof(root: Hex, leaf: AnchorLeaf, proof: readonly Hex[]): boolean {
   return StandardMerkleTree.verify(root, ANCHOR_LEAF, anchorValue(leaf), [...proof]);
 }

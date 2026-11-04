@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - apps/*
+  - tools/e2e
   - contracts
 allowBuilds:
   better-sqlite3: true
