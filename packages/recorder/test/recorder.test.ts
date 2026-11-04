@@ -68,7 +68,8 @@ describe("P1-12/13 recorder", () => {
     expect(seqs.every((s, i) => s === BigInt(i + 1))).toBe(true);
     expect((await allVerify(rec)).findings).toEqual([]);
     await rec.close();
-  }, 120_000);
+    // ~80 s alone (10k signs + 10k pure-JS recovers); turbo runs it beside core's fuzz suite on shared CPU
+  }, 600_000);
 
   test("restart continues the chain with recovered_from_seq", async () => {
     const config = tmpConfig();

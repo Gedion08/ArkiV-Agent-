@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓, P3-10 ✓, P3-11 ✓ (CLI; on-chain acceptance pending: the operator signs `setAgentURI` for the demo agent) | Next: P3-12 (staging infra). The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
+| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓, P3-10 ✓, P3-11 ✓ (demo agent `eip155:84532:0x8004a818…bd9e:10588` carries the `afr` service) | Next: P3-12 (staging infra). The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -28,7 +28,11 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
   - after "sending", `resolveAgent` and `fr agent show` see the `afr` service with the expected writers and anchor;
   - a rerun is idempotent;
   - bad `--uri`/`--endpoint`, a missing writer list, an existing `--out` and `local:` agents → 3.
-- Acceptance ("demo agent's registration contains the afr service") still needs a real Base Sepolia agent. The operator registers it if needed, then signs the printed `setAgentURI`. Check it with `fr agent show`.
+- Acceptance met on Base Sepolia. Demo agent `eip155:84532:0x8004a818bfb912233c491871b3d84c89a494bd9e:10588`, operator `0x952d…35af` (the admin wallet, also the Arkiv writer).
+  - The operator signed `register` (tx `0xeef67fe3…3f90`, block 54490064) and the printed `setAgentURI` (tx `0x1b29af92…0a30`, block 54490597).
+  - The deploy-only key funded the operator with 0.0002 ETH (tx `0x154b4036…ca2e`).
+  - `fr agent show` resolves the `afr` entry: writer `0x952d…35af`, anchor `0x976cf1d6…d341`, and an `agentKey` that matches the id.
+- R1 (`packages/recorder`) timeout raised from 120 s to 600 s. It takes about 80 s alone and about 132 s under turbo's parallel run. The assertions are unchanged.
 - Shortcuts: no `fr agent register`, and no fork test of the CLI itself (P3-04's fork test covers `setAgentURI`/`tokenURI` against the real registry). The profile-vs-registration writer mismatch is left to the verifier's warning.
 
 ### 2026-11-04: P3-10 `apps/cli` remote commands
