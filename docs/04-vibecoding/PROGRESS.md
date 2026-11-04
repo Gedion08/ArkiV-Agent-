@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓ (library; CLI is P3-10) | Next: P3-10 (`apps/cli`). The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
+| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓, P3-10 ✓ | Next: P3-11 (`fr agent update-registration`). The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -17,6 +17,18 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P3-10 `apps/cli` remote commands
+- `fr verify agent`, `fr prove`, `fr agent show`, `fr keys reader new|show` (`apps/cli/src/remote.ts`), dispatched from `main`. `main` gains an optional `deps: NetDeps` (store, identity and anchor readers, passphrase) so tests run without a network.
+- Exit codes per L7 §4/§5: 0/1/2, with 1 becoming 2 under `--strict`; usage or infra errors → 3. Infra errors print only their code, never the message (keyed RPC URLs). `fr journal verify` keeps its P1-16 codes.
+- `@afr/verifier`, `@afr/store`, `@afr/crypto`, `@afr/identity` and `viem` 2.57.7 are now runtime deps of `@afr/cli` (workspace packages plus an existing pin; nothing new from npm).
+- Tests (`apps/cli/test/remote.test.ts`, on the verifier fixtures):
+  - PASS/WARN/FAIL exit codes, `--strict`, `--json`;
+  - V6: identity or anchor reader throwing → 3 with no message text;
+  - usage → 3;
+  - `prove` output is checked independently (Merkle path, record sig, batch sig, covering checkpoint) and the command refuses to overwrite;
+  - `.afrkey` is 0600, holds no passphrase, round-trips through `show`, and a short passphrase is refused.
+- Shortcuts (L7 §5 note): no `keys reader import`, `--from-seq/--to-seq/--at`, `--paranoid` or `--arkiv-rpc`. `agent show` and the RPC readers are exercised only through the P3-04/P3-07 tests, not end to end on Base Sepolia.
 
 ### 2026-11-04: P3-07 … P3-09 `@afr/verifier` verifyAgent
 - `verifyAgent(agentId, {store, identity, anchors?, reader?, lane?, writers?, noWriterFilter?})` per L7 §3, report per §4 (counts and epochs as decimal strings).

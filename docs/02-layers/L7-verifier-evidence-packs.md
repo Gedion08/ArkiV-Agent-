@@ -156,6 +156,13 @@ Human output example:
 RESULT: PASS (structural)   — run with --reader-key for full verification
 ```
 
+P3-10 implementation notes:
+- Built so far: `verify agent` (`--lane`, `--reader-key`, `--json`, `--strict`, `--writer`, `--no-writer-filter`, `--identity-rpc`, `--base-rpc`, plus `--operator` for `local:` agents), `prove`, `agent show` and `keys reader new|show`. The rest of the list above is later work.
+- Exit codes follow §4. Usage errors and any thrown error (identity, Arkiv or anchor chain unreachable) exit 3. For an infra error only the error code is printed, because RPC library messages can contain keyed URLs.
+- Arkiv is read with `ARKIV_ACCESS_KEY` through a store that has a throwaway writer key and a zero spend cap. The reader-key passphrase comes from `AFR_READER_PASSPHRASE` or a hidden TTY prompt. `keys reader new` needs at least 12 characters and writes the file with mode 0600; it never overwrites an existing file.
+- `prove` writes `afr-proof/1`. It contains the record's hash, signature and session key, the Merkle path to `batch_root`, the batch's signed public section, and the lowest checkpoint covering the seq. Only the batch signature is checked when picking the frame. The delegation and the anchor behind it are evidence for `fr verify agent` / `verify record` (VER-07), not checked by `prove`.
+- Untrusted strings in human output have control characters replaced.
+
 ---
 
 ## 6. Evidence pack format (v1) [NORMATIVE]

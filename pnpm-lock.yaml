@@ -284,16 +284,15 @@ importers:
       '@afr/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@afr/recorder':
-        specifier: workspace:*
-        version: link:../../packages/recorder
-    devDependencies:
       '@afr/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
-      '@afr/log':
+      '@afr/identity':
         specifier: workspace:*
-        version: link:../../packages/log
+        version: link:../../packages/identity
+      '@afr/recorder':
+        specifier: workspace:*
+        version: link:../../packages/recorder
       '@afr/store':
         specifier: workspace:*
         version: link:../../packages/store
@@ -303,6 +302,10 @@ importers:
       viem:
         specifier: 2.57.7
         version: 2.57.7(typescript@6.0.3)(zod@4.6.7)
+    devDependencies:
+      '@afr/log':
+        specifier: workspace:*
+        version: link:../../packages/log
 
   apps/dashboard: {}
 

@@ -25,13 +25,14 @@
   },
   "dependencies": {
     "@afr/core": "workspace:*",
-    "@afr/recorder": "workspace:*"
-  },
-  "devDependencies": {
     "@afr/crypto": "workspace:*",
-    "@afr/log": "workspace:*",
+    "@afr/identity": "workspace:*",
+    "@afr/recorder": "workspace:*",
     "@afr/store": "workspace:*",
     "@afr/verifier": "workspace:*",
     "viem": "2.57.7"
+  },
+  "devDependencies": {
+    "@afr/log": "workspace:*"
   }
 }
