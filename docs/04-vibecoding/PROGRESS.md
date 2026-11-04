@@ -8,7 +8,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 |---|---|---|
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
-| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps), P2-12 ✓ | Blocked: P2-07 part 2 (HPKE deps). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). Not started: P2-13…P2-16 |
+| P2 Evidence store | in progress: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 part 1, P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓ (HPKE sealer injected; real HPKE blocked on deps), P2-12 ✓, P2-13 ✓ (API v0) | Blocked: P2-07 part 2 (HPKE deps). Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). Not started: P2-14…P2-16 |
 | P3 Anchor + verify | not started | |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
@@ -17,6 +17,19 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P2-13 apps/api v0
+- Deps (approved, lean set): `fastify` 5.12.8, `@fastify/cookie` 11.1.5 (exact). Reuses `pg`, `zod`, `viem` (`viem/siwe` for EIP-4361, so no `siwe` package).
+- `apps/api`: `buildServer({pool, siweDomain, keys, now?, logger?})`, `migrate(pool)` (raw SQL, advisory-locked).
+  - Auth (§4.1): SIWE nonce (single-use, 10 min) → session cookie `__Host-afr` (httpOnly, Secure, SameSite=Strict, 12 h) + CSRF token (`__Host-afr-csrf` cookie, `X-CSRF-Token` on mutations); `/v1/me`, logout.
+  - Orgs (§4.2): create (caller becomes owner), list, get.
+  - Agents (§4.3): create, with the watch key returned once and stored wrapped (`localKeyWrapper`, AAD = agent_key); list, get; recorder keys created (shown once, only `sha256(secret)` stored) and revoked.
+  - Recorder endpoints (§4.4): heartbeat, intents (≤ 100, `pg_notify('afr_intents')`), checkpoints (+ `batches_index`, lane advance), delegations (pre-signed revocation wrapped), config (ETag/304).
+  - Tenancy: membership checked on every route, 404 for other orgs; writes need owner/admin/engineer; audit log on mutations. Strict Zod schemas reject unknown fields; error bodies never echo input; 5xx logged by code + route only.
+- Recorder auth (§2, made exact in L8): `signRecorderRequest`/`checkRecorderRequest`; HMAC key = sha256(secret).
+- Tests (`apps/api/test/api.test.ts`, needs `AFR_PG_URL`, own schema per run): SIWE + nonce reuse + CSRF; watch key wrapped, secret not stored, cross-org 404; P2 (stale > 5 min, body tamper, wrong secret, revoked key, wrong lane); P5 (duplicate checkpoint → one row, intents/delegations idempotent); config ETag; plaintext guard. Green on the compose PG; `pnpm verify` green.
+- shortcuts: no members/invitations/PATCH agents/watched addresses/lanes/batches GET routes yet; no RLS (query-layer tenancy only); EOA-only SIWE (no ERC-1271); one local master key instead of KMS envelopes; no rate limits or helmet; no OpenAPI/client generation (P7 test); config `readers` is always [] until §4.7.
+- Next: P2-14 (recorder outbox → API).
 
 ### 2026-11-04: P2-12 delegations + agent profile before batches
 - `@afr/recorder` `statements.ts`:

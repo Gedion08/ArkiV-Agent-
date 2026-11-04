@@ -24,7 +24,7 @@
 | Principal | Auth | Scope |
 |---|---|---|
 | Dashboard user | SIWE (EIP-4361) → session cookie (`__Host-afr`, httpOnly, Secure, SameSite=Strict, 12 h) + CSRF token header | org memberships |
-| Recorder | `Authorization: Bearer afr_rk_<id>_<secret>` + `X-AFR-Signature: hex(HMAC-SHA256(secret, method‖path‖ts‖sha256(body)))` + `X-AFR-Timestamp` (±5 min) | one agent (+ lanes) |
+| Recorder | `Authorization: Bearer afr_rk_<id>_<secret>` + `X-AFR-Signature: hex(HMAC-SHA256(sha256(secret), METHOD \n path \n ts \n hex(sha256(body))))` + `X-AFR-Timestamp` (unix seconds, ±5 min). `<id>` is 16 hex chars, `<secret>` 64; `path` includes the query string; the API stores only `sha256(secret)` | one agent (+ lanes) |
 | Service (anchor, watcher) | mTLS inside the VPC + service JWT (short-lived, KMS-signed) | per service |
 | Public | none, rate-limited | `/v1/public/*` |
 | API user (v1) | org API key `afr_ok_…` | org, role-limited |
@@ -45,6 +45,8 @@
 ---
 
 ## 3. Database schema (Drizzle; abbreviated DDL)
+
+> v0 (P2-13) uses raw SQL migrations over `pg` (`apps/api/src/db/migrations.ts`) with the tables needed so far, plus `sessions`, `siwe_nonces` and `tx_intents`. Drizzle, OpenAPI generation, helmet, rate limits and pg-boss arrive with the tickets that need them.
 
 ```sql
 -- tenancy
