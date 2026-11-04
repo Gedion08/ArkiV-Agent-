@@ -9,6 +9,8 @@ import {
   type AnchorLeaf,
   anchorProofs,
   anchorRoot,
+  isLocalAgentId,
+  parseAgentId,
   sortAnchorLeaves,
   typedData,
 } from "@afr/core";
@@ -61,6 +63,9 @@ const leafOf = (l: LeafJson): AnchorLeaf => ({
   chainRoot: l.chain_root,
 });
 const tag = (s: string) => stringToHex(s);
+/** EIP-712 domain chain for statements about an agent (L1 §7); local dev agents use 8453. */
+const identityChainId = (agentId: string) =>
+  isLocalAgentId(agentId) ? 8453n : parseAgentId(agentId).chainId;
 
 export class AnchorService {
   readonly o: Required<Omit<AnchorServiceOptions, "logger" | "onAlert">> & AnchorServiceOptions;
@@ -158,6 +163,7 @@ export class AnchorService {
         continue;
       }
       leaves.push({
+        agent_id: best.agentId,
         agent_key: best.agentKey,
         lane: best.lane,
         seq_to: best.seqTo.toString(),
@@ -260,7 +266,7 @@ export class AnchorService {
         anchor_root: a.root,
         chain_id: a.chainId.toString(),
         contract: a.contract,
-        leaves: a.leaves.map(({ ids: _, ...l }) => l),
+        leaves: a.leaves.map(({ ids: _, agent_id: __, ...l }) => l),
       }),
       expiresAt: this.o.expiresAt,
       readonly: true,
@@ -291,7 +297,7 @@ export class AnchorService {
         anchorTx: a.txHash as Hex,
       };
       const sig = await chain.o.signer.signTypedData(
-        typedData(a.chainId, "CheckpointStatement", message) as never,
+        typedData(identityChainId(json.agent_id), "CheckpointStatement", message) as never,
       );
       const entity = await this.#putOnce({
         schema: "afr.checkpoint.v1",

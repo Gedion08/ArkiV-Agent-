@@ -87,6 +87,14 @@ verifyAgent(agentId, opts):
 
 **Equivocation tolerance:** byte-identical duplicates (from rollback re-creates) are fine.
 
+**Untrusted noise vs. failures (P3-07).** Anyone can write entities under an agent's `agent_key`, so only signed data can fail a verification:
+- A batch counts only if `batch_sig` recovers to a listed session key with a valid operator-signed delegation for that lane. Others are ignored and counted (`IGNORED_UNSIGNED`, info). Equivocation is judged among counted batches only.
+- `FRAME_DECODE` / `ATTR_MISMATCH` fail only for an allowlisted writer (registration `afr.arkiv.writers`, then the profile's `writers`); under `--no-writer-filter` they're ignored too.
+- A checkpoint on an unknown contract, or with a bad proof not signed by an allowlisted anchor key (`isRecorder` on the contract), is ignored (`IGNORED_CHECKPOINT`, info). A bad proof signed by an allowlisted key is `ANCHOR_PROOF` (fail).
+- Keygrant problems (`NO_KEYGRANT`, `KEYGRANT_INVALID`, `KEYGRANT_SIG`) are warnings: full checks are skipped for that epoch, the structural result stands.
+- Other codes in v0: `NO_WRITER_LIST`, `NO_VALID_DELEGATION`, `NO_VALID_BATCHES` (warn), `ANCHOR_NOT_CHECKED` (warn, no anchor-chain reader).
+- Payloads read: delegation and revocation `{message, sig}` (EIP-712 message with decimal-string uints), attestation `{statement, sig}` signed by the `attestor` attr, checkpoint `{statement, sig, proof, epoch, contract}`.
+
 **Delegation time bound:** a record's effective time is the **anchor block time** of the first checkpoint covering it. That's what stops backdating with expired keys. For unanchored tails, `ts` is used and the result is marked "unanchored".
 
 ---

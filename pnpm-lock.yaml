@@ -516,6 +516,9 @@ importers:
       '@afr/crypto':
         specifier: workspace:*
         version: link:../crypto
+      '@afr/identity':
+        specifier: workspace:*
+        version: link:../identity
       '@afr/store':
         specifier: workspace:*
         version: link:../store

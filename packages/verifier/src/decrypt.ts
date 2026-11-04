@@ -156,64 +156,9 @@ export async function decryptAgent(o: DecryptOptions): Promise<DecryptReport> {
     if (!keks.has(p.epoch_id)) keks.set(p.epoch_id, await epochKek(o, agentKey, f, fail));
     const kek = keks.get(p.epoch_id);
     if (!kek) continue;
-    let headers: string[];
-    let bodies: Uint8Array[];
-    try {
-      ({ headers, bodies } = unpackPlaintext(
-        decryptBatch(
-          {
-            ct: f.ct,
-            iv: hexToBytes(p.iv as Hex),
-            wrappedDek: hexToBytes(p.wrapped_dek as Hex),
-            epochId: p.epoch_id,
-            kekId: p.kek_id as Hex,
-          },
-          { agentKey, lane: p.lane, seqFrom, seqTo, batchRoot: p.batch_root as Hex },
-          kek,
-        ),
-      ));
-    } catch (e) {
-      fail({ code: errCode(e), ...at });
-      continue;
-    }
-    if (headers.length !== p.records.length) {
-      fail({ code: "RECORD_COUNT", ...at });
-      continue;
-    }
-    let parsed: RecordHeaderV1[];
-    try {
-      parsed = headers.map((h) => JSON.parse(h) as RecordHeaderV1);
-    } catch {
-      fail({ code: "HEADER_INVALID", ...at });
-      continue;
-    }
-    const seqOf = (i: number) => p.records[i]?.seq ?? p.seq_from;
-    const checks: Finding[] = await verifyRecords(
-      parsed.map((header, i) => ({
-        header,
-        sig: p.records[i]?.sig as Hex,
-        hash: p.records[i]?.hash as Hex,
-      })),
-      { start: recordStart, signers: p.session_keys as Hex[] },
-    );
-    parsed.forEach((header, i) => {
-      let body: RecordBodyV1 | undefined;
-      try {
-        body = decodeBody(bodies[i] as Uint8Array);
-        checks.push(...verifyBody(header, body, i));
-      } catch (e) {
-        fail({ code: errCode(e), ...at, seq: seqOf(i) });
-      }
-      records.push({ seq: BigInt(seqOf(i)), header, ...(body ? { body } : {}) });
-    });
-    for (const x of checks)
-      findings.push({
-        code: x.code,
-        severity: x.severity,
-        batch: b.ref.key,
-        seq: seqOf(x.index),
-        ...(x.detail ? { detail: x.detail } : {}),
-      });
+    const opened = await openBatch(f, b.ref.key, agentKey, kek, recordStart);
+    records.push(...opened.records);
+    findings.push(...opened.findings);
   }
   return {
     batches: batches.length,
@@ -223,9 +168,88 @@ export async function decryptAgent(o: DecryptOptions): Promise<DecryptReport> {
   };
 }
 
+/**
+ * Decrypts one batch and checks every record against its public section: header hashes, prev_hash
+ * links, schema, record signatures (by the batch's session keys) and body commitments (L7 step 3, full).
+ */
+export async function openBatch(
+  f: Frame,
+  batch: Hex,
+  agentKey: Hex,
+  kek: EpochKek,
+  start: { seq: bigint; prevHash: Hex },
+): Promise<{ records: DecryptedRecord[]; findings: DecryptFinding[] }> {
+  const p = f.pub;
+  const at = { batch, seq: p.seq_from };
+  const records: DecryptedRecord[] = [];
+  const findings: DecryptFinding[] = [];
+  const fail: Fail = (x) => findings.push({ severity: "fail", ...x });
+  const seqFrom = BigInt(p.seq_from);
+  const seqTo = BigInt(p.seq_to);
+  let headers: string[];
+  let bodies: Uint8Array[];
+  try {
+    ({ headers, bodies } = unpackPlaintext(
+      decryptBatch(
+        {
+          ct: f.ct,
+          iv: hexToBytes(p.iv as Hex),
+          wrappedDek: hexToBytes(p.wrapped_dek as Hex),
+          epochId: p.epoch_id,
+          kekId: p.kek_id as Hex,
+        },
+        { agentKey, lane: p.lane, seqFrom, seqTo, batchRoot: p.batch_root as Hex },
+        kek,
+      ),
+    ));
+  } catch (e) {
+    fail({ code: errCode(e), ...at });
+    return { records, findings };
+  }
+  if (headers.length !== p.records.length) {
+    fail({ code: "RECORD_COUNT", ...at });
+    return { records, findings };
+  }
+  let parsed: RecordHeaderV1[];
+  try {
+    parsed = headers.map((h) => JSON.parse(h) as RecordHeaderV1);
+  } catch {
+    fail({ code: "HEADER_INVALID", ...at });
+    return { records, findings };
+  }
+  const seqOf = (i: number) => p.records[i]?.seq ?? p.seq_from;
+  const checks: Finding[] = await verifyRecords(
+    parsed.map((header, i) => ({
+      header,
+      sig: p.records[i]?.sig as Hex,
+      hash: p.records[i]?.hash as Hex,
+    })),
+    { start, signers: p.session_keys as Hex[] },
+  );
+  parsed.forEach((header, i) => {
+    let body: RecordBodyV1 | undefined;
+    try {
+      body = decodeBody(bodies[i] as Uint8Array);
+      checks.push(...verifyBody(header, body, i));
+    } catch (e) {
+      fail({ code: errCode(e), ...at, seq: seqOf(i) });
+    }
+    records.push({ seq: BigInt(seqOf(i)), header, ...(body ? { body } : {}) });
+  });
+  for (const x of checks)
+    findings.push({
+      code: x.code,
+      severity: x.severity,
+      batch,
+      seq: seqOf(x.index),
+      ...(x.detail ? { detail: x.detail } : {}),
+    });
+  return { records, findings };
+}
+
 /** Opens this reader's keygrant for the batch's epoch; null (with a finding) when none is usable. */
-async function epochKek(
-  o: DecryptOptions,
+export async function epochKek(
+  o: Pick<DecryptOptions, "store" | "reader" | "writers">,
   agentKey: Hex,
   f: Frame,
   fail: Fail,

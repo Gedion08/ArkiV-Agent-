@@ -160,6 +160,7 @@ export class World {
     );
     if (o.announce !== false) this.db.addSessionKey(ak, o.lane, session.address);
     const id = this.db.addCheckpoint({
+      agentId,
       agentKey: ak,
       lane: o.lane,
       seqTo: o.seqTo,

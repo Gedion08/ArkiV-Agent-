@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓ | Next: P3-07 (verifier). The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
+| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓ (library; CLI is P3-10) | Next: P3-10 (`apps/cli`). The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -17,6 +17,18 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-04: P3-07 … P3-09 `@afr/verifier` verifyAgent
+- `verifyAgent(agentId, {store, identity, anchors?, reader?, lane?, writers?, noWriterFilter?})` per L7 §3, report per §4 (counts and epochs as decimal strings).
+  - Readers: `rpcIdentityReader` (ERC-8004 via `@afr/identity`, ECDSA + ERC-1271), `staticIdentityReader` (`local:` agents), `rpcAnchorReader` (`rootOf`, `isRecorder`, block time from the anchor tx's `Anchored` log).
+  - Full mode reuses `openBatch`/`epochKek`, extracted from `decryptAgent` (unchanged API).
+  - Delegation validity is bounded by the anchor block time of the first covering checkpoint (≤ notAfter + 1 h); in full mode also by each record's `ts`.
+  - Untrusted noise rules: L7 §3 note (doc edit).
+- Anchor service: the `CheckpointStatement` domain is now the identity chain (L1 §7), not the anchor chain; leaves carry `agent_id` (not in the manifest).
+- Tests (`packages/verifier/test/verify.test.ts`, fixtures from core/crypto/store only): V1 (every negative record vector sealed in a signed batch → exactly its codes; batch-level tampering → exact codes), V4 (100 forged batches: hidden by the writer filter, `IGNORED_UNSIGNED: 100` without it), V5, anchors (mismatch, bad proof by recorder vs. by anyone, unknown signing key, time bound), full mode, identity/infra (RPC error throws, never FAIL).
+  - The vectors caught a crash: a float `ts` in an untrusted decrypted header (now ignored; it's already HEADER_INVALID).
+- Shortcuts: depth-1 delegations only (identity-key sub-delegation, L1 §7.1, lands with that recorder mode); no `--at` / seq ranges; CT_HASH can't be produced through the store (the frame codec rejects it), so it isn't tested; profile signature checked against the current operator.
+- Not verified: V2 (demo agent on testnet), against real Base.
 
 ### 2026-11-04: P3-05 `apps/anchor` + P3-06 API checkpoints → anchored
 - `apps/anchor` (L5 §3):

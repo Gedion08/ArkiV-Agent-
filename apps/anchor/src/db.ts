@@ -8,6 +8,8 @@ export type CheckpointStatus = "pending" | "validated" | "anchored" | "supersede
 
 export interface CheckpointRow {
   id: string;
+  /** For the EIP-712 domain of the CheckpointStatement (identity chain, L1 §7). */
+  agentId: string;
   agentKey: Hex;
   lane: number;
   seqTo: bigint;
@@ -18,6 +20,7 @@ export interface CheckpointRow {
 }
 
 export interface LeafJson {
+  agent_id: string;
   agent_key: Hex;
   lane: number;
   seq_to: string;
@@ -187,13 +190,14 @@ export class PgAnchorDb implements AnchorDb {
 
   async checkpoints(status: CheckpointStatus, limit: number) {
     const { rows } = await this.pool.query(
-      `SELECT c.id, a.agent_key, c.lane, c.seq_to::text, c.chain_root, c.batch_entity, c.status, c.received_at
+      `SELECT c.id, a.agent_id, a.agent_key, c.lane, c.seq_to::text, c.chain_root, c.batch_entity, c.status, c.received_at
          FROM checkpoints c JOIN agents a ON a.id = c.agent_id
         WHERE c.status = $1 ORDER BY c.received_at LIMIT $2`,
       [status, limit],
     );
     return rows.map((r) => ({
       id: r.id as string,
+      agentId: r.agent_id as string,
       agentKey: hex(r.agent_key) as Hex,
       lane: r.lane as number,
       seqTo: BigInt(r.seq_to),
