@@ -1,0 +1,69 @@
+# L11 §3 / P3-13: nightly full scenario on the real networks (Arkiv Rabdi + Base Sepolia):
+# record → Arkiv → API checkpoints → anchor on Base Sepolia → full verify (tools/e2e/scripts/testnet-e2e.ts).
+# Spends test GLM and Base Sepolia ETH. Secrets: ARKIV_ACCESS_KEY, AFR_ARKIV_WRITER_KEY, AFR_ANCHOR_KEY
+# (allowlisted on RecorderAnchor, funded, and not the staging anchor key: the two would race on nonces),
+# BASE_SEPOLIA_RPC_URL; optional SLACK_WEBHOOK_URL.
+name: testnet-e2e
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  # one run at a time, never cancelled mid-write: the writer and anchor keys each have one nonce sequence
+  group: testnet-e2e
+  cancel-in-progress: false
+jobs:
+  scenario:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16.10-alpine
+        env:
+          POSTGRES_USER: afr
+          POSTGRES_PASSWORD: afr-ci-only # ephemeral service container, not a secret
+          POSTGRES_DB: afr
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U afr" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: scenario
+        env:
+          AFR_PG_URL: postgres://afr:afr-ci-only@127.0.0.1:5432/afr
+          ARKIV_ACCESS_KEY: ${{ secrets.ARKIV_ACCESS_KEY }}
+          AFR_ARKIV_WRITER_KEY: ${{ secrets.AFR_ARKIV_WRITER_KEY }}
+          AFR_ANCHOR_KEY: ${{ secrets.AFR_ANCHOR_KEY }}
+          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+        run: node --import ./tools/ts/register.mjs tools/e2e/scripts/testnet-e2e.ts --report report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: testnet-e2e-report
+          path: report.json
+          if-no-files-found: warn
+      # the report holds ids, addresses, tx hashes and result codes only: no keys, URLs or record content
+      - name: post to Slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$SLACK_WEBHOOK_URL" ] || { echo "no SLACK_WEBHOOK_URL: skipped"; exit 0; }
+          if [ -f report.json ]; then
+            summary=$(jq -r '"verify \(.verify.result // "-") · checkpoint \(.checkpoint.status // "-") · anchor \(.checkpoint.anchor_tx // "-") · leaks \(.plaintext_check.leaks // "-") · \(.error // "")\(.duration_s)s"' report.json)
+          else
+            summary="no report (the script crashed before writing one)"
+          fi
+          icon=$([ "$STATUS" = success ] && echo ":white_check_mark:" || echo ":rotating_light:")
+          jq -n --arg t "$icon AFR testnet e2e: $STATUS · $summary · $RUN_URL" '{text: $t}' |
+            curl -fsS -X POST -H 'content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"

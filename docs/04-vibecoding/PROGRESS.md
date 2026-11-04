@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓, P3-10 ✓, P3-11 ✓ (demo agent `eip155:84532:0x8004a818…bd9e:10588` carries the `afr` service) , P3-12 ✓ in code (KMS signer verified on LocalStack + anvil; Terraform not yet planned against AWS) | Next: P3-13 (nightly `testnet-e2e.yml`). Staging apply + KMS key allowlisting need an operator with AWS access. The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
+| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓, P3-10 ✓, P3-11 ✓ (demo agent `eip155:84532:0x8004a818…bd9e:10588` carries the `afr` service) , P3-12 ✓ in code (KMS signer verified on LocalStack + anvil; Terraform not yet planned against AWS) | P3-13 ✓ locally (`testnet-e2e.yml` scenario PASS on Rabdi + Base Sepolia); 3 green nights pending a pushed repo + secrets. Staging apply + KMS key allowlisting need an operator with AWS access. The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -17,6 +17,25 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-05: P3-13 nightly `testnet-e2e.yml` (passes locally on Rabdi + Base Sepolia)
+- `tools/e2e/scripts/testnet-e2e.ts`: the P2 demo plus anchoring and verify, on Rabdi + Base Sepolia:
+  - checks first (reads only) that `AFR_ANCHOR_KEY` is on the RecorderAnchor allowlist and funded: else `NOT_RECORDER` / `ANCHOR_KEY_UNFUNDED`, exit 1, nothing spent;
+  - a fresh `local:` agent, operator key, reader key and Postgres schema per run;
+  - the recorder uploads to Arkiv (0.05 tGLM cap; `PgWriteJournal`) and sends checkpoint notices to an in-process API;
+  - `AnchorService.tick()` until the last checkpoint is `anchored` (10 min deadline);
+  - `verifyAgent` in full mode must `PASS`, with every lane anchored and no unanchored tail;
+  - the P2 canary check over every entity of the agent.
+  - It writes a JSON report (ids, addresses, tx hashes, codes). The schema is dropped on success and kept on failure.
+  - Recorder and anchor service share one store, so one WriterQueue and one nonce sequence. Heartbeats are off so no record lands after the anchored checkpoint.
+- `.github/workflows/testnet-e2e.yml`: nightly 03:17 UTC + manual; Postgres 16.10 service; never cancelled mid-run; uploads the report; posts a one-line summary to Slack when `SLACK_WEBHOOK_URL` is set.
+  - Repo secrets needed: `ARKIV_ACCESS_KEY`, `AFR_ARKIV_WRITER_KEY`, `AFR_ANCHOR_KEY` (allowlisted, funded, not the staging anchor key), `BASE_SEPOLIA_RPC_URL`.
+- `tools/e2e/tsconfig.json` now typechecks `scripts/` too (the script lives here because `tools/e2e` already has `pg`).
+- Checked: tsc and Biome clean; missing env → exit 2; a random key → `NOT_RECORDER` before any write.
+- Real runs, from this box with the writer wallet `0x952d…35af` as both Arkiv writer and anchor key (the only allowlisted recorder):
+  - run 1: everything worked (5 entities, anchored in tx `0xdf1a9b76…a930`, full verify, 0 leaks), but the result was `PASS_WITH_WARNINGS` with `ID_NO_AFR_SERVICE`. The script passed the verifier a bare operator. Fix: it now supplies the `afr` service entry `fr agent update-registration` would publish.
+  - run 2: `PASS`, no findings, 66 s, anchor tx `0x1f54cfce…8fcc`, 5 entities, 0 leaks.
+- Not done: DoD "green for 3 nights" needs the repo pushed and the secrets on GitHub. CI needs its own allowlisted, funded `AFR_ANCHOR_KEY`.
 
 ### 2026-11-04: API container (P3-12 follow-up)
 - `apps/api/src/main.ts`:
