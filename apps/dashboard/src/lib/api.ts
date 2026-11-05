@@ -8,6 +8,7 @@ export type Agent = Json<paths["/v1/agents/{id}"]["get"]>["agent"];
 export type AgentListItem = Json<paths["/v1/orgs/{org}/agents"]["get"]>["agents"][number];
 export type Lane = Json<paths["/v1/agents/{id}/lanes"]["get"]>["lanes"][number];
 export type Alert = Json<paths["/v1/orgs/{org}/alerts"]["get"]>["alerts"][number];
+export type Activity = Json<paths["/v1/agents/{id}/activity"]["get"]>;
 export type Org = Json<paths["/v1/orgs"]["get"]>["orgs"][number];
 
 const CSRF_COOKIE = "__Host-afr-csrf";
@@ -44,6 +45,11 @@ export async function ok<T>(
   throw new ApiError(response.status, typeof code === "string" ? code : `HTTP_${response.status}`);
 }
 
+/** The org's agents with their summaries: the list page and the sidebar share this cache entry. */
+export const agentsQuery = (org: string) => ({
+  queryKey: ["agents", org],
+  queryFn: () => ok(api().GET("/v1/orgs/{org}/agents", { params: { path: { org } } })),
+});
 export const lanesQuery = (id: string) => ({
   queryKey: ["lanes", id],
   queryFn: () => ok(api().GET("/v1/agents/{id}/lanes", { params: { path: { id } } })),
@@ -58,4 +64,10 @@ export const openAlertsQuery = (org: string, agent: string) => ({
         params: { path: { org }, query: { status: "open", agent, limit: OPEN_ALERTS_PAGE } },
       }),
     ),
+});
+/** 48 hours, so the overview can compare the last 24 with the 24 before. */
+export const activityQuery = (id: string) => ({
+  queryKey: ["activity", id],
+  queryFn: () =>
+    ok(api().GET("/v1/agents/{id}/activity", { params: { path: { id }, query: { hours: 48 } } })),
 });

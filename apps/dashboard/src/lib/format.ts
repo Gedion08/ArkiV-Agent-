@@ -1,14 +1,14 @@
-import type { Agent, Alert } from "./api.js";
+import type { Activity, Agent, Alert } from "./api.js";
 
 export const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
 export type Severity = (typeof SEVERITIES)[number];
-/** L9 §6 severity colours; every chip also carries the severity as text. */
+/** L9 §6 severity colours (design tokens); every pill also carries the severity as text. */
 export const SEVERITY_CLASS: Record<Severity, string> = {
-  critical: "bg-red-600 text-white",
-  high: "bg-orange-500 text-white",
-  medium: "bg-amber-400 text-black",
-  low: "bg-sky-500 text-white",
-  info: "bg-slate-400 text-black",
+  critical: "bg-bad-soft text-bad-soft-fg",
+  high: "bg-high-soft text-high-soft-fg",
+  medium: "bg-warn-soft text-warn-soft-fg",
+  low: "bg-low-soft text-low-soft-fg",
+  info: "bg-info-soft text-info-soft-fg",
 };
 
 /** 0x1234ab…cdef90, with the full value left for the title attribute. */
@@ -56,3 +56,24 @@ export function agentLabel(id: string): { primary: string; secondary: string } {
   if (id.startsWith("local:")) return { primary: "local", secondary: id.slice(6, 14) };
   return { primary: id.length > 24 ? `${id.slice(0, 24)}…` : id, secondary: "" };
 }
+
+/**
+ * The activity chart's last `n` hours plus totals: this window, the one before it (when the API returned
+ * 2n hours) and the change in percent (null when there's nothing to compare with).
+ */
+export function activityWindow(hours: Activity["hours"], n = 24) {
+  const shown = hours.slice(-n);
+  const before = hours.slice(-2 * n, -n);
+  const total = shown.reduce((s, h) => s + h.actions, 0);
+  const prev = before.length === n ? before.reduce((s, h) => s + h.actions, 0) : null;
+  return {
+    shown,
+    total,
+    unlogged: shown.reduce((s, h) => s + h.unlogged, 0),
+    peak: Math.max(0, ...shown.map((h) => h.actions)),
+    changePct: prev ? Math.round(((total - prev) / prev) * 100) : null,
+  };
+}
+
+/** 1284 → "1,284" (fixed locale, so screenshots and tests agree). */
+export const count = (n: number) => n.toLocaleString("en-US");

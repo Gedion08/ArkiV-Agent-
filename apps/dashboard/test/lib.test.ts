@@ -1,7 +1,15 @@
 import { parseSiweMessage } from "viem/siwe";
 import { describe, expect, test } from "vitest";
 import { type Alert, ApiError, csrfFrom } from "../src/lib/api.js";
-import { agentLabel, ago, displayStatus, severityCounts, short } from "../src/lib/format.js";
+import {
+  activityWindow,
+  agentLabel,
+  ago,
+  count,
+  displayStatus,
+  severityCounts,
+  short,
+} from "../src/lib/format.js";
 import { parseRoute } from "../src/lib/route.js";
 import { siweMessage } from "../src/lib/siwe.js";
 import { loginError, sortConnectors } from "../src/pages/login.js";
@@ -122,4 +130,24 @@ test("login errors show codes, never raw messages", () => {
   });
   expect(loginError(wrapped)).toBe("The request was rejected in your wallet.");
   expect(loginError({ name: "ProviderNotFoundError" })).toMatch(/^No browser wallet found/);
+});
+
+describe("activity", () => {
+  const hrs = (xs: number[]) =>
+    xs.map((actions, i) => ({
+      start: new Date(i * 3600_000).toISOString(),
+      actions,
+      unlogged: i === xs.length - 1 ? 1 : 0,
+    }));
+  test("last 24 h totals, peak and change against the 24 h before", () => {
+    const w = activityWindow(hrs([...Array(24).fill(1), ...Array(24).fill(2)]));
+    expect(w.shown).toHaveLength(24);
+    expect(w).toMatchObject({ total: 48, peak: 2, unlogged: 1, changePct: 100 });
+  });
+  test("no comparison without a full earlier day, or when it was empty", () => {
+    expect(activityWindow(hrs([5, 5, 5])).changePct).toBeNull();
+    expect(activityWindow(hrs([...Array(24).fill(0), ...Array(24).fill(3)])).changePct).toBeNull();
+    expect(activityWindow([]).peak).toBe(0);
+  });
+  test("counts use grouping separators", () => expect(count(12844)).toBe("12,844"));
 });

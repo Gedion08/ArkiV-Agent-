@@ -510,6 +510,45 @@ describe.skipIf(!URL)("apps/api v0", () => {
     });
   });
 
+  test("activity: hourly recorded actions and unlogged txs, oldest first, window bounded", async () => {
+    const { u, org, agent } = await setup();
+    const batch = (from: number, to: number, at: string) =>
+      pool.query(
+        `INSERT INTO batches_index (agent_id, lane, seq_from, seq_to, entity_key, chain_root, batch_root, created_at)
+         VALUES ($1, 0, $2, $3, $4, $4, $4, ${at})`,
+        [agent.id, from, to, randomBytes(32)],
+      );
+    await batch(0, 9, "date_trunc('hour', now()) + interval '1 min'"); // this hour: 10 actions
+    await batch(10, 14, "date_trunc('hour', now()) - interval '2 hours' + interval '5 min'"); // 2 h ago: 5
+    await batch(15, 99, "now() - interval '30 hours'"); // outside 24 h
+    await pool.query(
+      `INSERT INTO alerts (org_id, agent_id, type, severity, dedupe_key, first_seen_at)
+       VALUES ($1, $2, 'UNLOGGED_TX', 'critical', 'u1', date_trunc('hour', now()) + interval '2 min'),
+              ($1, $2, 'ANCHOR_LAG', 'high', 'a1', date_trunc('hour', now()) + interval '2 min')`,
+      [org.id, agent.id],
+    );
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/agents/${agent.id}/activity`,
+      headers: u.get,
+    });
+    expect(res.statusCode).toBe(200);
+    const { hours } = res.json() as {
+      hours: { start: string; actions: number; unlogged: number }[];
+    };
+    expect(hours).toHaveLength(24);
+    expect(Date.parse(hours[23]!.start) - Date.parse(hours[0]!.start)).toBe(23 * 3600_000);
+    expect(hours[23]).toMatchObject({ actions: 10, unlogged: 1 });
+    expect(hours[21]).toMatchObject({ actions: 5, unlogged: 0 });
+    expect(hours.reduce((s, h) => s + h.actions, 0)).toBe(15);
+    const bad = await app.inject({
+      method: "GET",
+      url: `/v1/agents/${agent.id}/activity?hours=500`,
+      headers: u.get,
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
   test("read views: lanes, batch index and checkpoints with cursors", async () => {
     const { u, agent, key } = await setup();
     for (const [from, to] of [

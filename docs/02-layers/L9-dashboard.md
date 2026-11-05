@@ -168,8 +168,9 @@ Pending requests with a summary (decrypted locally if the summary is encrypted t
 
 ## 6. Design system
 
-- shadcn/ui on Tailwind, with tokens for light and dark. Mono font for hashes and seqs (JetBrains Mono / IBM Plex Mono). Shortened hashes with copy + full value on hover.
-- Severity colours: critical red-600, high orange-500, medium amber-400, low sky-500, info slate-400, used consistently in alerts, timeline ribbons and the badge.
+- Direction "Precision" (ADR-026): calm, light-first, one indigo accent. Tailwind with semantic colour tokens for light and dark (`src/index.css`), in-repo components (`src/components/ui.tsx`), and Radix primitives once menus, dialogs and the ⌘K palette arrive. Geist for text and Geist Mono for hashes and seqs, both self-hosted. Shortened hashes with copy + full value on hover.
+- Shell: a sidebar with the org switcher, navigation and the org's agents (status dot, quick switch). It collapses to a top bar on phones, where tables become card lists.
+- Severity colours (soft pill tokens): critical red, high orange, medium amber, low sky, info slate, used consistently in alerts, timeline ribbons and the badge.
 - Every chart and colour state also has a text/icon equivalent (WCAG 2.2 AA). Everything is keyboard navigable (timeline j/k, replay arrows).
 - Empty states teach: "No actions yet → point your agent at `fr-proxy`" with a copy-paste snippet.
 

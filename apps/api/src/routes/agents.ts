@@ -619,6 +619,48 @@ export const agentRoutes: ZodPlugin<
       }),
   );
 
+  // L9 §4.2 activity chart: recorded actions (seq span of batches indexed that hour) and unlogged txs per hour
+  app.get(
+    "/v1/agents/:id/activity",
+    {
+      ...auth,
+      schema: {
+        params: AgentParam,
+        querystring: z.strictObject({ hours: z.coerce.number().int().min(1).max(168).default(24) }),
+        response: {
+          200: z.strictObject({
+            hours: z.array(
+              z.strictObject({ start: Iso, actions: z.number().int(), unlogged: z.number().int() }),
+            ),
+          }),
+        },
+      },
+    },
+    async (req) =>
+      withAgent(req.params.id, uid(req), undefined, async (q, a) => {
+        const { rows } = await q.query<{ start: Date; actions: string; unlogged: string }>(
+          `WITH h AS (
+             SELECT generate_series(date_trunc('hour', $2::timestamptz) - ($3::int - 1) * interval '1 hour',
+                                    date_trunc('hour', $2::timestamptz), interval '1 hour') AS start)
+           SELECT h.start,
+             (SELECT coalesce(sum(b.seq_to - b.seq_from + 1), 0) FROM batches_index b
+               WHERE b.agent_id = $1 AND b.created_at >= h.start AND b.created_at < h.start + interval '1 hour') AS actions,
+             (SELECT count(*) FROM alerts al
+               WHERE al.agent_id = $1 AND al.type = 'UNLOGGED_TX'
+                 AND al.first_seen_at >= h.start AND al.first_seen_at < h.start + interval '1 hour') AS unlogged
+           FROM h ORDER BY h.start`,
+          [a.id, new Date(now()), req.query.hours],
+        );
+        return {
+          hours: rows.map((r) => ({
+            start: r.start.toISOString(),
+            actions: Number(r.actions),
+            unlogged: Number(r.unlogged),
+          })),
+        };
+      }),
+  );
+
   app.get(
     "/v1/agents/:id/batches",
     {

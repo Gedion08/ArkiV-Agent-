@@ -1,15 +1,98 @@
 @import "tailwindcss";
 
+/* Design tokens (L9 §6, direction "Precision"): semantic colours, redefined for dark mode below, so
+   components never need dark: variants. Fonts are self-hosted (CSP font-src 'self'). */
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-canvas: #ffffff;
+  --color-surface: #fafafb;
+  --color-raised: #ffffff;
+  --color-line: #ececef;
+  --color-line-strong: #e1e1e6;
+  --color-fg: #0b0b0f;
+  --color-fg-2: #2e2e36;
+  --color-muted: #5b5b66;
+  --color-accent: #3b5bdb;
+  --color-accent-hover: #2f4bc0;
+  --color-accent-fg: #ffffff;
+  --color-accent-soft: #eef1ff;
+  --color-accent-soft-fg: #1f2f8f;
+  --color-focus: #3b5bdb;
+
+  --color-ok: #12a15a;
+  --color-ok-soft: #e7f6ee;
+  --color-ok-soft-fg: #0f6b3e;
+  --color-warn: #b07a00;
+  --color-warn-soft: #fef7e0;
+  --color-warn-soft-fg: #7a5000;
+  --color-bad: #d92d20;
+  --color-bad-soft: #fdecec;
+  --color-bad-soft-fg: #b42318;
+  --color-high: #e8590c;
+  --color-high-soft: #fff1e6;
+  --color-high-soft-fg: #a3410a;
+  --color-low-soft: #e8f2fd;
+  --color-low-soft-fg: #175cd3;
+  --color-info-soft: #f2f2f4;
+  --color-info-soft-fg: #4a4a55;
+}
+
 @layer base {
-  /* the page itself follows the system theme, so dark-mode text never sits on a white page */
   :root {
     color-scheme: light dark;
   }
-  body {
-    @apply bg-white text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
-  }
-}
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-canvas: #0b0b0f;
+      --color-surface: #101015;
+      --color-raised: #14141a;
+      --color-line: #1f1f27;
+      --color-line-strong: #2b2b35;
+      --color-fg: #ededf0;
+      --color-fg-2: #d2d2d9;
+      --color-muted: #9a9aa6;
+      --color-accent: #7c93ff;
+      --color-accent-hover: #98a9ff;
+      --color-accent-fg: #0b0b0f;
+      --color-accent-soft: #1a2040;
+      --color-accent-soft-fg: #c3ccff;
+      --color-focus: #98a9ff;
 
-@theme {
-  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --color-ok: #3fcf83;
+      --color-ok-soft: #0f2a1c;
+      --color-ok-soft-fg: #7ee2a8;
+      --color-warn: #e3b341;
+      --color-warn-soft: #2e2509;
+      --color-warn-soft-fg: #f5c451;
+      --color-bad: #ff6b61;
+      --color-bad-soft: #3a1214;
+      --color-bad-soft-fg: #ff9b8f;
+      --color-high: #ff8a3d;
+      --color-high-soft: #3a200c;
+      --color-high-soft-fg: #ffb37a;
+      --color-low-soft: #0f2540;
+      --color-low-soft-fg: #8cc4ff;
+      --color-info-soft: #1f1f27;
+      --color-info-soft-fg: #b4b4bf;
+    }
+  }
+  body {
+    @apply bg-canvas font-sans text-sm text-fg antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      /* biome-ignore lint/complexity/noImportantStyles: a reduced-motion preference must beat component styles */
+      animation-duration: 0.01ms !important;
+      /* biome-ignore lint/complexity/noImportantStyles: as above */
+      transition-duration: 0.01ms !important;
+    }
+  }
 }

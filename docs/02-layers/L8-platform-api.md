@@ -157,6 +157,7 @@ CREATE TABLE audit_log (id bigserial PK, org_id uuid, actor text, action text, t
 | GET/POST/DELETE | `/v1/agents/{id}/watched-addresses` | `{chain_id, address, kind: eoa\|smart_account\|safe\|session_key, since_block?}`; re-adding returns the existing row (200) |
 | GET/POST/DELETE | `/v1/agents/{id}/auditors` | owner/admin. `POST {user_id}`: the member must have role `auditor` (else 409 `NOT_AN_AUDITOR`); idempotent. `DELETE /auditors/{userId}` |
 | GET | `/v1/agents/{id}/lanes` | status per lane |
+| GET | `/v1/agents/{id}/activity?hours=24` | recorded actions (seq span of batches indexed that hour) and `UNLOGGED_TX` alerts per hour, oldest first; 1–168 hours |
 | GET | `/v1/agents/{id}/batches?lane&from_seq&limit` | public index (UI convenience, verifiable against Arkiv); `limit` ≤ 500, cursor `next_from_seq` |
 | GET | `/v1/agents/{id}/checkpoints?lane&after_seq&limit` | cursor `next_after_seq` |
 | GET | `/v1/agents/{id}/registration` | proposed ERC-8004 registration JSON with the AFR entry |

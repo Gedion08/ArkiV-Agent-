@@ -18,6 +18,21 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 
 ## Session entries
 
+### 2026-11-05: P4-08 design pass: direction "Precision"
+- **Direction:** three mockups (light Precision, dark Control room, warm Ledger) on a design canvas; the user picked Precision.
+- **Design system (ADR-026, L9 §6):**
+  - Semantic colour tokens for light and dark in `apps/dashboard/src/index.css`, so components need no `dark:` variants.
+  - Geist and Geist Mono self-hosted (`@fontsource-variable/geist` and `geist-mono` 5.3.0), plus `lucide-react` 1.61.0, all exact pins (user approved).
+  - In-repo components in `src/components/ui.tsx`: buttons, status and severity pills, panels, stat cards, skeleton loaders, empty states, page header with breadcrumbs. Plus the logo.
+- **Screens:**
+  - Shell: a sidebar with the org switcher, navigation, the org's agents with status dots, and the wallet with sign out. It collapses to a top bar on phones.
+  - Login: a split layout with the wallet picker and a product panel.
+  - Agent list: segmented status filter, a table on desktop, cards on phones, and empty states that teach.
+  - Agent overview: stat cards, a 24 h activity chart marking unlogged txs, recent alerts and lanes.
+- **API:** `GET /v1/agents/{id}/activity?hours=` (L8 §4) returns hourly recorded actions from the batch index and `UNLOGGED_TX` alerts. The client is regenerated and there's a test.
+- **Checked:** in the browser pane on desktop light and dark, and on mobile. Tests: api 35, dashboard 12.
+- **Not yet:** the verify banner (P4-14) and timeline links (P4-11) from the mockup, until those views exist.
+
 ### 2026-11-05: P4-08 follow-up: dashboard hosting, wallets, agent list summary
 - **Hosting (ADR-026 revised):** the API serves the dashboard build (`apps/api/src/dashboard.ts`, `AFR_DASHBOARD_DIR`).
   - **Image:** the api image builds `@afr/dashboard` into `/app/dashboard`, and staging sets `AFR_DASHBOARD_DIR`. No CloudFront and no domain are needed, and it shares the origin with the `__Host-` cookie.
