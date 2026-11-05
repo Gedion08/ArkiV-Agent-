@@ -2,5 +2,6 @@
 export const PACKAGE_NAME = "@afr/verifier";
 
 export * from "./decrypt.js";
+export * from "./delegations.js";
 export * from "./readers.js";
 export * from "./verify.js";

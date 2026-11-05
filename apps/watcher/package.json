@@ -23,7 +23,11 @@
   "dependencies": {
     "@afr/core": "workspace:*",
     "@afr/crypto": "workspace:*",
+    "@afr/log": "workspace:*",
+    "@afr/secrets": "workspace:*",
     "@afr/store": "workspace:*",
+    "@afr/verifier": "workspace:*",
+    "@aws-sdk/client-kms": "3.1161.0",
     "pg": "8.23.1",
     "viem": "2.57.7"
   },

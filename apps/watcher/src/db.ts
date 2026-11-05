@@ -50,6 +50,8 @@ export interface Candidate {
   agentId: string;
   /** ms */
   seenAt: number;
+  /** The agent's grace (agents.watch_grace_s), ms; absent → the matcher's default. */
+  graceMs?: number;
   match?: "unlogged";
 }
 
@@ -114,6 +116,8 @@ export class MemoryWatcherDb implements WatcherDb, MatcherDb, ReconcileDb {
   readonly batchCommits: { agentId: string; kind: "tx" | "nonce"; commitment: Hex }[] = [];
   readonly reconcileCursors = new Map<string, bigint>();
   readonly sessionKeys: { agentId: string; lane: number; address: Hex }[] = [];
+  /** agentId → watch_grace_s */
+  readonly graceS = new Map<string, number>();
   readonly matches = new Map<string, { kind: MatchKind; agentId: string } & Commits>();
   readonly watches: { chainId: bigint; address: Hex; entry: WatchEntry }[] = [];
   /** Tests: commitBlock calls, to check nothing is processed twice. */
@@ -159,8 +163,10 @@ export class MemoryWatcherDb implements WatcherDb, MatcherDb, ReconcileDb {
       if (tx.chainId !== chainId || status !== "seen" || seenAt < since) continue;
       for (const agentId of tx.agentIds) {
         const m = this.matches.get(`${chainId}:${tx.hash}:${agentId}`)?.kind;
-        if (!m) out.push({ tx, agentId, seenAt });
-        else if (m === "unlogged") out.push({ tx, agentId, seenAt, match: m });
+        const g = this.graceS.get(agentId);
+        const c = { tx, agentId, seenAt, ...(g !== undefined ? { graceMs: g * 1000 } : {}) };
+        if (!m) out.push(c);
+        else if (m === "unlogged") out.push({ ...c, match: m });
       }
     }
     return out;
@@ -374,11 +380,14 @@ export class PgWatcherDb implements WatcherDb, MatcherDb, ReconcileDb {
       agent_ids: string[];
       agent_id: string;
       seen_ms: string;
+      grace_s: number;
       kind: "unlogged" | null;
     }>(
       `SELECT o.tx_hash, o.block_number::text, o.block_hash, o.from_addr, o.nonce::text, o.to_addr, o.agent_ids,
-              a.agent_id, (extract(epoch FROM o.seen_at) * 1000)::bigint::text AS seen_ms, m.kind
+              a.agent_id, (extract(epoch FROM o.seen_at) * 1000)::bigint::text AS seen_ms, g.watch_grace_s AS grace_s,
+              m.kind
          FROM observed_txs o CROSS JOIN LATERAL unnest(o.agent_ids) AS a(agent_id)
+         JOIN agents g ON g.id = a.agent_id
          LEFT JOIN tx_matches m ON m.chain_id = o.chain_id AND m.tx_hash = o.tx_hash AND m.agent_id = a.agent_id
         WHERE o.chain_id = $1 AND o.status = 'seen' AND o.seen_at >= to_timestamp($2::double precision / 1000)
           AND (m.kind IS NULL OR m.kind = 'unlogged')`,
@@ -397,6 +406,7 @@ export class PgWatcherDb implements WatcherDb, MatcherDb, ReconcileDb {
       },
       agentId: r.agent_id,
       seenAt: Number(r.seen_ms),
+      graceMs: r.grace_s * 1000,
       ...(r.kind ? { match: r.kind } : {}),
     }));
   }
@@ -484,26 +494,31 @@ export class PgWatcherDb implements WatcherDb, MatcherDb, ReconcileDb {
  * One dedicated connection; returns a function that stops listening.
  */
 export function listenWatched(pool: Pool, chainId: bigint, onChange: () => void) {
-  return listen(pool, "watched_changed", (p) => p === chainId.toString() && onChange());
+  return listen(pool, {
+    watched_changed: (p) => {
+      if (p === chainId.toString()) onChange();
+    },
+  });
 }
 
 /** LISTEN afr_intents (the API's POST /v1/recorder/intents): `onIntent(agentId)`, to sweep early. */
 export function listenIntents(pool: Pool, onIntent: (agentId: string) => void) {
-  return listen(pool, "afr_intents", (p) => p && onIntent(p));
+  return listen(pool, { afr_intents: (p) => p && onIntent(p) });
 }
 
-async function listen(
+/**
+ * LISTEN on several channels over one dedicated connection (the service holds this plus its leader lock).
+ * Channels: watched_changed (payload chain id), afr_intents (agent id), afr_watch_keys (agent id, rotation).
+ */
+export async function listen(
   pool: Pool,
-  channel: string,
-  fn: (payload: string | undefined) => unknown,
+  handlers: Record<string, (payload: string | undefined) => unknown>,
 ): Promise<() => Promise<void>> {
   const c = await pool.connect();
-  c.on("notification", (n) => {
-    if (n.channel === channel) fn(n.payload);
-  });
-  await c.query(`LISTEN ${channel}`);
+  c.on("notification", (n) => handlers[n.channel]?.(n.payload));
+  for (const ch of Object.keys(handlers)) await c.query(`LISTEN ${ch}`);
   return async () => {
-    await c.query(`UNLISTEN ${channel}`).catch(() => {});
+    await c.query("UNLISTEN *").catch(() => {});
     c.release();
   };
 }

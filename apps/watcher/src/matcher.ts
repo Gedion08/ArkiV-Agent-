@@ -5,12 +5,12 @@
 // Pending state is the DB itself (observed_txs without a verdict), so a restart loses no timer: sweep()
 // re-derives everything. Call it every 5 s and on LISTEN afr_intents / after a batch reconciliation.
 //
-// shortcut: grace is one value per matcher (L6 says per agent, 15–600 s); add an agents column when the
-// dashboard exposes it. Watch keys are cached for the process lifetime: rotation (watch_keys.rotated_at)
-// needs the cache dropped and old-key commitments tried too.
+// Grace is per agent (agents.watch_grace_s, 15–600 s). Watch keys: the current one and, after a rotation,
+// the previous one (intents committed before the recorder picked up the new key); the cache is dropped on
+// LISTEN afr_watch_keys (forgetKeys).
 import { nonceCommit, txCommit } from "@afr/crypto";
 import type { Hex } from "viem";
-import type { Candidate, MatcherDb } from "./db.js";
+import type { Candidate, Commits, MatcherDb } from "./db.js";
 
 export type MatchEvent =
   | {
@@ -25,8 +25,9 @@ export type MatchEvent =
 export interface MatcherOptions {
   chainId: bigint;
   db: MatcherDb;
-  /** The agent's 32-byte watch key (sealed in watch_keys; the API's OrgSecrets opens it). */
-  watchKey: (agentId: string) => Promise<Uint8Array>;
+  /** The agent's 32-byte watch keys, current first (sealed in watch_keys; OrgSecrets opens them). */
+  watchKeys: (agentId: string) => Promise<Uint8Array[]>;
+  /** For candidates without their own grace. */
   graceMs?: number;
   /** Blocks on top of (and including) the tx's before it can alert. */
   confirmations?: number;
@@ -39,7 +40,7 @@ export interface MatcherOptions {
 
 export class Matcher {
   readonly o: Required<Omit<MatcherOptions, "onEvent">> & Pick<MatcherOptions, "onEvent">;
-  readonly #keys = new Map<string, Uint8Array>();
+  readonly #keys = new Map<string, Uint8Array[]>();
 
   constructor(o: MatcherOptions) {
     this.o = {
@@ -52,13 +53,23 @@ export class Matcher {
     };
   }
 
-  async #key(agentId: string) {
+  async #keysOf(agentId: string) {
     let k = this.#keys.get(agentId);
     if (!k) {
-      k = await this.o.watchKey(agentId);
+      k = await this.o.watchKeys(agentId);
+      if (!k.length) throw new Error("WATCH_KEY_MISSING");
       this.#keys.set(agentId, k);
     }
     return k;
+  }
+
+  /** After a rotation: the next sweep re-reads this agent's keys (all agents without an argument). */
+  forgetKeys(agentId?: string) {
+    for (const [id, ks] of this.#keys)
+      if (agentId === undefined || id === agentId) {
+        for (const k of ks) k.fill(0);
+        this.#keys.delete(id);
+      }
   }
 
   /** One pass over undecided txs and stale intents; `head` is the follower's latest block. */
@@ -78,13 +89,21 @@ export class Matcher {
 
   async #decide(c: Candidate, now: number, head: bigint): Promise<MatchEvent | undefined> {
     const { chainId, db } = this.o;
-    const w = await this.#key(c.agentId);
-    const commits = {
-      tx: txCommit(w, chainId, c.tx.hash),
-      nonce: nonceCommit(w, chainId, c.tx.from, c.tx.nonce),
-    };
     const at = { agentId: c.agentId, chainId, tx: c.tx.hash, block: c.tx.blockNumber };
-    const found = await db.findIntent(c.agentId, chainId, commits);
+    // the best match under any of the agent's keys (exact beats replacement); verdicts keep its commitments
+    let found: "exact" | "replacement" | undefined;
+    let commits: Commits | undefined;
+    for (const w of await this.#keysOf(c.agentId)) {
+      const cs = {
+        tx: txCommit(w, chainId, c.tx.hash),
+        nonce: nonceCommit(w, chainId, c.tx.from, c.tx.nonce),
+      };
+      commits ??= cs;
+      const f = await db.findIntent(c.agentId, chainId, cs);
+      if (f && found !== "exact") [found, commits] = [f, cs];
+      if (found === "exact") break;
+    }
+    commits = commits as Commits;
     if (found) {
       const kind = c.match === "unlogged" ? "late_intent" : found;
       await db.setMatch(chainId, c.tx.hash, c.agentId, kind, commits);
@@ -93,7 +112,7 @@ export class Matcher {
       return undefined;
     }
     const confirmed = c.tx.blockNumber + BigInt(this.o.confirmations) - 1n <= head;
-    if (!c.match && now >= c.seenAt + this.o.graceMs && confirmed) {
+    if (!c.match && now >= c.seenAt + (c.graceMs ?? this.o.graceMs) && confirmed) {
       await db.setMatch(chainId, c.tx.hash, c.agentId, "unlogged", commits);
       return { type: "UNLOGGED_TX", ...at };
     }

@@ -1,15 +1,17 @@
 // P4-03/04 on anvil with the real recorder: W1 (logged tx → matched; raw tx → UNLOGGED_TX after the grace),
 // W2 (speed-up → matched by nonce commitment, TX_REPLACED; a never-mined intent → INTENT_NOT_MINED), W4
 // (intent notice dropped: the Arkiv batch reconciles it before the grace → no alert; after → LATE_INTENT).
+// Also: per-agent grace, a rotated watch key (the previous one still matches), and reconciliation refusing
+// batches whose delegation isn't the operator's or doesn't cover the batch's write time.
 // The recorder's outbox goes to a fake API that writes tx_intents / session_keys like the real routes.
 // Needs `anvil` (Foundry); skipped without it.
 import { randomBytes } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentKey } from "@afr/core";
 import { parseConfig, Recorder } from "@afr/recorder";
 import { MemoryChain, MemoryStore } from "@afr/store";
+import { staticIdentityReader } from "@afr/verifier";
 import { type Hex, keccak256 } from "viem";
 import { foundry } from "viem/chains";
 import { describe, expect, test } from "vitest";
@@ -18,11 +20,20 @@ import { ANVIL, CHAIN, SINK, useAnvil, WATCHED } from "./fixtures/anvil.js";
 
 const anvil = useAnvil();
 const AGENT = "eip155:84532:0x00000000000000000000000000000000000a8004:7";
-const AK = agentKey(AGENT);
 const AGENT_UUID = "agent-1";
 const WRITER = `0x${"a1".repeat(20)}` as Hex;
+const OPERATOR_KEY = `0x${"00".repeat(31)}02` as const;
+const OPERATOR = "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf" as Hex; // address of OPERATOR_KEY
 
-async function world(o: { dropIntents?: boolean } = {}) {
+interface WorldOptions {
+  dropIntents?: boolean;
+  /** Who the identity reader says the operator is (default: the key that signs the delegations). */
+  operator?: Hex;
+  /** Shifts Arkiv's clock against the delegation's (real-time) validity window. */
+  arkivOffsetS?: number;
+}
+
+async function world(o: WorldOptions = {}) {
   const clock = { now: 1_800_000_000_000 };
   const db = new MemoryWatcherDb();
   db.now = () => clock.now;
@@ -41,10 +52,13 @@ async function world(o: { dropIntents?: boolean } = {}) {
     startBlock: (await anvil.pc.getBlockNumber()) + 1n,
   });
   const watchKey = new Uint8Array(randomBytes(32));
+  const keys = { current: watchKey, previous: undefined as Uint8Array | undefined };
   const matcher = new Matcher({
     chainId: CHAIN,
     db,
-    watchKey: async () => watchKey,
+    // copies: the matcher zeroes keys it forgets, and the recorder holds the original
+    watchKeys: async () =>
+      [keys.current, ...(keys.previous ? [keys.previous] : [])].map((k) => k.slice()),
     now: () => clock.now,
   });
 
@@ -67,7 +81,12 @@ async function world(o: { dropIntents?: boolean } = {}) {
         });
     return new Response("{}", { status: 200 });
   };
-  const store = new MemoryStore(new MemoryChain(), WRITER);
+  const chain = new MemoryChain();
+  // the memory chain's clock starts in the past: line it up with real time (the delegation's), plus the offset
+  chain.block = BigInt(
+    Math.floor((Date.now() / 1000 + (o.arkivOffsetS ?? 0) - chain.genesisTs) / 2),
+  );
+  const store = new MemoryStore(chain, WRITER);
   const rec = await Recorder.start({
     config: parseConfig(
       {
@@ -80,7 +99,7 @@ async function world(o: { dropIntents?: boolean } = {}) {
       {},
     ),
     env: {
-      AFR_OPERATOR_KEY: `0x${"00".repeat(31)}02`,
+      AFR_OPERATOR_KEY: OPERATOR_KEY,
       AFR_API_KEY: `afr_rk_0123456789abcdef_${"ab".repeat(32)}`,
     },
     autoRotate: false,
@@ -118,9 +137,11 @@ async function world(o: { dropIntents?: boolean } = {}) {
     clock.now += advanceMs;
     return matcher.sweep(head);
   };
-  const reconcile = () => reconcileLane({ db, store, agentId: AGENT_UUID, agentKey: AK, lane: 0 });
+  const identity = staticIdentityReader(o.operator ?? OPERATOR);
+  const reconcile = () =>
+    reconcileLane({ db, store, identity, agentId: AGENT_UUID, agent: AGENT, lane: 0 });
   const match = (h: Hex) => db.matches.get(`${CHAIN}:${h}:${AGENT_UUID}`)?.kind;
-  return { db, rec, log, sendLogged, sweep, reconcile, match };
+  return { db, rec, keys, matcher, log, sendLogged, sweep, reconcile, match };
 }
 
 describe.skipIf(!ANVIL)("matcher (anvil + recorder)", () => {
@@ -213,6 +234,37 @@ describe.skipIf(!ANVIL)("matcher (anvil + recorder)", () => {
     expect(await w.sweep(29_000)).toMatchObject([{ type: "LATE_INTENT", tx: b }]);
     expect(w.match(b)).toBe("late_intent");
     expect(await w.sweep(60_000)).toEqual([]);
+    await w.rec.close();
+  });
+
+  test("reconciliation needs the operator's delegation, valid when the batch was written", async () => {
+    for (const o of [
+      { operator: `0x${"0d".repeat(20)}` as Hex }, // the delegation isn't signed by the agent's operator
+      { arkivOffsetS: 2 * 86_400 }, // written after notAfter + 1 h (the session key lives 24 h)
+      { arkivOffsetS: -86_400 }, // written before notBefore
+    ]) {
+      const w = await world({ ...o, dropIntents: true });
+      const a = await w.sendLogged();
+      expect(await w.reconcile()).toBe(0);
+      expect(await w.sweep(61_000)).toMatchObject([{ type: "UNLOGGED_TX", tx: a }]);
+      await w.rec.close();
+    }
+  }, 20_000); // three recorders
+
+  test("per-agent grace; after a rotation intents under the previous key still match", async () => {
+    const w = await world();
+    w.db.graceS.set(AGENT_UUID, 15);
+    const raw = await anvil.send();
+    expect(await w.sweep(14_000)).toEqual([]);
+    expect(await w.sweep(2_000)).toMatchObject([{ type: "UNLOGGED_TX", tx: raw }]);
+
+    // rotate: the watcher gets the new key first, the recorder still commits under the old one
+    w.keys.previous = w.keys.current;
+    w.keys.current = new Uint8Array(randomBytes(32));
+    w.matcher.forgetKeys(AGENT_UUID);
+    const logged = await w.sendLogged();
+    expect(await w.sweep()).toEqual([]);
+    expect(w.match(logged)).toBe("exact");
     await w.rec.close();
   });
 });

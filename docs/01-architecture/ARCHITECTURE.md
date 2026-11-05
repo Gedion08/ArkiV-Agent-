@@ -125,7 +125,7 @@ Each layer has its own spec in [`docs/02-layers/`](../02-layers/).
 | L10 | **Guardrails** | Policy engine, approvals | [L10](../02-layers/L10-guardrails-approvals.md) | `packages/policy`, `apps/approvals` |
 | L11 | **Infra, DevOps, security ops** | Deployment, secrets, CI/CD, monitoring, compliance | [L11](../02-layers/L11-infra-devops-security.md) | `infra/` |
 
-**Dependency rule:** lower layers never import higher ones. `core` imports nothing internal. `crypto` and `store` import `core`. `recorder` imports `core`, `crypto`, `store` and `policy`. `verifier` imports `core`, `crypto`, `store` (read-only) and `identity`. Apps import packages, never other apps. CI enforces this rule with dependency-cruiser.
+**Dependency rule:** lower layers never import higher ones. `core` imports nothing internal. `crypto` and `store` import `core`. `recorder` imports `core`, `crypto`, `store` and `policy`. `verifier` imports `core`, `crypto`, `store` (read-only) and `identity`. `secrets` (server-side envelope keys, L8 §8, shared by the API and the watcher) imports `crypto`. Apps import packages, never other apps. CI enforces this rule with dependency-cruiser.
 
 ---
 
@@ -136,6 +136,7 @@ Each layer has its own spec in [`docs/02-layers/`](../02-layers/).
 | `@afr/core` | library | everywhere | – | – | P1 |
 | `@afr/crypto` | library | recorder, dashboard, CLI | per caller | per caller | P2 |
 | `@afr/store` | library | recorder, anchor, watcher, verifier, dashboard | Arkiv writer key (recorder only) | no | P2 |
+| `@afr/secrets` | library (server) | API, watcher | per-org DEKs (unwrapped by the KMS KEK) | watch keys, channel configs | P4 |
 | `@afr/recorder` | library | customer | session key, epoch KEK, watch key | **yes** | P1 |
 | `fr-proxy` (`apps/proxy`) | process / container | customer | via recorder | **yes** | P1 |
 | `@afr/sdk` (TS) | library | customer agent process | via recorder | **yes** | P1/P2 |

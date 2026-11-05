@@ -25,6 +25,7 @@
     "@afr/core": "workspace:*",
     "@afr/crypto": "workspace:*",
     "@afr/log": "workspace:*",
+    "@afr/secrets": "workspace:*",
     "@aws-sdk/client-kms": "3.1161.0",
     "@fastify/cookie": "11.1.5",
     "@fastify/cors": "11.3.1",

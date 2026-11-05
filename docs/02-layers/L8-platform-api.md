@@ -72,7 +72,7 @@ CREATE TABLE agent_lanes (agent_id uuid REFERENCES agents, lane int, writer byte
   last_batch_at timestamptz, last_heartbeat_at timestamptz, recorder_version text, PRIMARY KEY (agent_id, lane));
 CREATE TABLE recorder_keys (id text PK, org_id uuid, agent_id uuid, secret_hash bytea NOT NULL, lanes int[] NOT NULL,
   created_by uuid, created_at timestamptz, last_used_at timestamptz, revoked_at timestamptz);
-CREATE TABLE watch_keys (agent_id uuid PK REFERENCES agents, kms_ciphertext bytea NOT NULL, created_at timestamptz, rotated_at timestamptz);
+CREATE TABLE watch_keys (agent_id uuid PK REFERENCES agents, kms_ciphertext bytea NOT NULL, prev_kms_ciphertext bytea, created_at timestamptz, rotated_at timestamptz);
 CREATE TABLE watched_addresses (id uuid PK, org_id uuid, agent_id uuid, chain_id bigint, address bytea, kind text,
   since_block bigint, source text, created_at timestamptz, UNIQUE (agent_id, chain_id, address));
 CREATE TABLE session_keys (agent_id uuid, lane int, address bytea, not_before timestamptz, not_after timestamptz,
@@ -146,7 +146,8 @@ CREATE TABLE audit_log (id bigserial PK, org_id uuid, actor text, action text, t
 | Method | Path | Notes |
 |---|---|---|
 | GET/POST | `/v1/orgs/{org}/agents` | create: `{agent_id \| register: {...}, name, privacy_level, retention_days, ...}` → also provisions the watch key (returned **once**, for the recorder config) |
-| GET/PATCH | `/v1/agents/{id}` | settings. Privacy/retention changes require a new signed AgentProfile (`profile_statement` in the body) |
+| GET/PATCH | `/v1/agents/{id}` | settings (`name`, `status`, `approval_threshold_cents`, `watch_grace_s` 15–600). Privacy/retention changes require a new signed AgentProfile (`profile_statement` in the body) |
+| POST | `/v1/agents/{id}/watch-key/rotate` | → `{watch_key}` (shown once; put it in the recorder config). The previous key is kept so the watcher still matches intents committed under it. Only one previous key is kept |
 | POST | `/v1/agents/{id}/recorder-keys` | → `afr_rk_…` (shown once) |
 | DELETE | `/v1/agents/{id}/recorder-keys/{keyId}` | |
 | GET/POST/DELETE | `/v1/agents/{id}/watched-addresses` | `{chain_id, address, kind: eoa\|smart_account\|safe\|session_key, since_block?}`; re-adding returns the existing row (200) |
@@ -254,7 +255,7 @@ Counters live in Redis (`ApiOptions.redis`, namespace `afr-rl:`), so every API i
 ## 8. Security requirements
 
 - Input validation via Zod on every route. Unknown fields are rejected (`.strict()`).
-- Secrets (channel configs, watch keys, pre-signed revocations) are encrypted with KMS envelope keys per org: each org's random AES-256 DEK is stored only wrapped by the KEK (`kmsKeyWrapper`: KMS `Encrypt`/`Decrypt` with encryption context `{afr_org}`; `localKeyWrapper` for dev), and secrets are sealed `0x01 ‖ iv ‖ AES-GCM(dek, iv, plain, aad)` with the agent key or session key as AAD. Unwrapped DEKs are cached LRU (default 1000 orgs) for 15 min, and evicted keys are zeroed. `migrateLegacySecrets` re-seals pre-v2 data (`iv ‖ AES-GCM(master)` under the old single master key) into this format. It is idempotent and leaves rows that changed meanwhile untouched.
+- Secrets (channel configs, watch keys, pre-signed revocations) are encrypted with KMS envelope keys per org (`@afr/secrets`, shared with the watcher): each org's random AES-256 DEK is stored only wrapped by the KEK (`kmsKeyWrapper`: KMS `Encrypt`/`Decrypt` with encryption context `{afr_org}`; `localKeyWrapper` for dev), and secrets are sealed `0x01 ‖ iv ‖ AES-GCM(dek, iv, plain, aad)` with the agent key or session key as AAD. Unwrapped DEKs are cached LRU (default 1000 orgs) for 15 min, and evicted keys are zeroed. `migrateLegacySecrets` re-seals pre-v2 data (`iv ‖ AES-GCM(master)` under the old single master key) into this format. It is idempotent and leaves rows that changed meanwhile untouched.
 - Audit log for every mutation: who, what, from which IP.
 - CSRF: double-submit token + SameSite=Strict.
 - CORS: `@fastify/cors`, only `ApiOptions.dashboardOrigin` (exact match, with credentials). Without one, no CORS headers.

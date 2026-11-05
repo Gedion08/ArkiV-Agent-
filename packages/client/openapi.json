@@ -1009,6 +1009,11 @@
                               "paused",
                               "archived"
                             ]
+                          },
+                          "watch_grace_s": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -1020,7 +1025,8 @@
                           "privacy_level",
                           "retention_days",
                           "approval_threshold_cents",
-                          "status"
+                          "status",
+                          "watch_grace_s"
                         ],
                         "additionalProperties": false
                       }
@@ -1086,6 +1092,12 @@
                   "approval_threshold_cents": {
                     "type": "string",
                     "pattern": "^\\d{1,18}$"
+                  },
+                  "watch_grace_s": {
+                    "default": 60,
+                    "type": "integer",
+                    "minimum": 15,
+                    "maximum": 600
                   }
                 },
                 "required": [
@@ -1168,6 +1180,11 @@
                             "paused",
                             "archived"
                           ]
+                        },
+                        "watch_grace_s": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -1179,7 +1196,8 @@
                         "privacy_level",
                         "retention_days",
                         "approval_threshold_cents",
-                        "status"
+                        "status",
+                        "watch_grace_s"
                       ],
                       "additionalProperties": false
                     },
@@ -1273,6 +1291,11 @@
                             "paused",
                             "archived"
                           ]
+                        },
+                        "watch_grace_s": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -1284,7 +1307,8 @@
                         "privacy_level",
                         "retention_days",
                         "approval_threshold_cents",
-                        "status"
+                        "status",
+                        "watch_grace_s"
                       ],
                       "additionalProperties": false
                     }
@@ -1330,6 +1354,11 @@
                       "paused",
                       "archived"
                     ]
+                  },
+                  "watch_grace_s": {
+                    "type": "integer",
+                    "minimum": 15,
+                    "maximum": 600
                   }
                 },
                 "additionalProperties": false
@@ -1408,6 +1437,11 @@
                             "paused",
                             "archived"
                           ]
+                        },
+                        "watch_grace_s": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -1419,13 +1453,52 @@
                         "privacy_level",
                         "retention_days",
                         "approval_threshold_cents",
-                        "status"
+                        "status",
+                        "watch_grace_s"
                       ],
                       "additionalProperties": false
                     }
                   },
                   "required": [
                     "agent"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{id}/watch-key/rotate": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "watch_key": {
+                      "type": "string",
+                      "pattern": "^0x[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": [
+                    "watch_key"
                   ],
                   "additionalProperties": false
                 }

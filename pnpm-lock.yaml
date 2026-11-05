@@ -230,6 +230,9 @@ importers:
       '@afr/log':
         specifier: workspace:*
         version: link:../../packages/log
+      '@afr/secrets':
+        specifier: workspace:*
+        version: link:../../packages/secrets
       '@aws-sdk/client-kms':
         specifier: 3.1161.0
         version: 3.1161.0
@@ -348,9 +351,21 @@ importers:
       '@afr/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@afr/log':
+        specifier: workspace:*
+        version: link:../../packages/log
+      '@afr/secrets':
+        specifier: workspace:*
+        version: link:../../packages/secrets
       '@afr/store':
         specifier: workspace:*
         version: link:../../packages/store
+      '@afr/verifier':
+        specifier: workspace:*
+        version: link:../../packages/verifier
+      '@aws-sdk/client-kms':
+        specifier: 3.1161.0
+        version: 3.1161.0
       pg:
         specifier: 8.23.1
         version: 8.23.1
@@ -500,6 +515,19 @@ importers:
         specifier: 2.57.7
         version: 2.57.7(typescript@6.0.3)(zod@4.6.7)
 
+  packages/secrets:
+    dependencies:
+      '@afr/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      '@aws-sdk/client-kms':
+        specifier: 3.1161.0
+        version: 3.1161.0
+    devDependencies:
+      '@types/pg':
+        specifier: 8.23.1
+        version: 8.23.1
+
   packages/store:
     dependencies:
       '@afr/core':
@@ -572,6 +600,9 @@ importers:
       '@afr/store':
         specifier: workspace:*
         version: link:../../packages/store
+      '@afr/verifier':
+        specifier: workspace:*
+        version: link:../../packages/verifier
       '@afr/watcher':
         specifier: workspace:*
         version: link:../../apps/watcher

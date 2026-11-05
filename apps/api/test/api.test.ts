@@ -143,8 +143,8 @@ describe.skipIf(!URL)("apps/api v0", () => {
     expect((await app.inject({ method: "GET", url: "/v1/me" })).statusCode).toBe(401);
   });
 
-  test("agents: watch key returned once and stored only wrapped; tenancy 404 across orgs", async () => {
-    const { org, agent, watchKey, key } = await setup();
+  test("agents: watch key returned once and stored only wrapped; rotation keeps the previous; tenancy 404 across orgs", async () => {
+    const { u, org, agent, watchKey, key } = await setup();
     expect(agent).toMatchObject({
       privacy_level: 0,
       retention_days: 365,
@@ -179,6 +179,32 @@ describe.skipIf(!URL)("apps/api v0", () => {
       payload: {},
     });
     expect(steal.statusCode).toBe(404);
+
+    // rotation: a new key returned once, the old one kept sealed as the previous key
+    const rotate = (by: typeof other) =>
+      app.inject({
+        method: "POST",
+        url: `/v1/agents/${agent.id}/watch-key/rotate`,
+        headers: by.headers,
+        payload: {},
+      });
+    expect((await rotate(other)).statusCode).toBe(404);
+    const r = await rotate(u);
+    expect(r.statusCode).toBe(200);
+    const next = r.json().watch_key;
+    expect(next).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(next).not.toBe(watchKey);
+    const after = (
+      await pool.query(
+        "SELECT kms_ciphertext, prev_kms_ciphertext, rotated_at FROM watch_keys WHERE agent_id = $1",
+        [agent.id],
+      )
+    ).rows[0];
+    const hex = async (b: Buffer) =>
+      `0x${Buffer.from(await secrets.open(org.id, b, aad)).toString("hex")}`;
+    expect(await hex(after.kms_ciphertext)).toBe(next);
+    expect(await hex(after.prev_kms_ciphertext)).toBe(watchKey);
+    expect(after.rotated_at).toBeInstanceOf(Date);
   });
 
   test("P2: recorder HMAC — valid accepted; stale, tampered, wrong-secret, revoked, wrong-lane rejected", async () => {
@@ -407,6 +433,10 @@ describe.skipIf(!URL)("apps/api v0", () => {
     });
     expect((await patch({ privacy_level: 2 })).statusCode).toBe(400);
     expect((await patch({})).statusCode).toBe(400);
+    expect(agent.watch_grace_s).toBe(60);
+    expect((await patch({ watch_grace_s: 15 })).json().agent.watch_grace_s).toBe(15);
+    for (const g of [14, 601, 30.5])
+      expect((await patch({ watch_grace_s: g })).statusCode).toBe(400);
 
     const url = `/v1/agents/${agent.id}/watched-addresses`;
     const address = `0x${"Cd".repeat(20)}`;

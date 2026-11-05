@@ -656,6 +656,7 @@ export interface paths {
                                 approval_threshold_cents: string | null;
                                 /** @enum {string} */
                                 status: "active" | "paused" | "archived";
+                                watch_grace_s: number;
                             }[];
                         };
                     };
@@ -682,6 +683,8 @@ export interface paths {
                         /** @default 365 */
                         retention_days?: number;
                         approval_threshold_cents?: string;
+                        /** @default 60 */
+                        watch_grace_s?: number;
                     };
                 };
             };
@@ -706,6 +709,7 @@ export interface paths {
                                 approval_threshold_cents: string | null;
                                 /** @enum {string} */
                                 status: "active" | "paused" | "archived";
+                                watch_grace_s: number;
                             };
                             watch_key: string;
                         };
@@ -757,6 +761,7 @@ export interface paths {
                                 approval_threshold_cents: string | null;
                                 /** @enum {string} */
                                 status: "active" | "paused" | "archived";
+                                watch_grace_s: number;
                             };
                         };
                     };
@@ -784,6 +789,7 @@ export interface paths {
                         approval_threshold_cents?: string | null;
                         /** @enum {string} */
                         status?: "active" | "paused" | "archived";
+                        watch_grace_s?: number;
                     };
                 };
             };
@@ -808,12 +814,52 @@ export interface paths {
                                 approval_threshold_cents: string | null;
                                 /** @enum {string} */
                                 status: "active" | "paused" | "archived";
+                                watch_grace_s: number;
                             };
                         };
                     };
                 };
             };
         };
+        trace?: never;
+    };
+    "/v1/agents/{id}/watch-key/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            watch_key: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/agents/{id}/recorder-keys": {

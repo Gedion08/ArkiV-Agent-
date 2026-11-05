@@ -10,13 +10,55 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
 | P3 Anchor + verify | **done, with exceptions** (owner's call, 2026-11-05): all 13 tickets done. P3-12 ✓ A4 met: the staging KMS key `0xd9b2…b27d` anchored epoch 4 (tx `0xfe0e5b81…96bc`). Exit demo ✓: structural, full (`…:10593`), mirror corruption FAIL, anchors on BaseScan | Exceptions: P3-13's 3 green nights (GitHub Actions locked by a billing issue; secrets set); npm provenance (needs Actions + an `@afr` org; the CLI ships as GitHub Release tarballs for `npx`); the DoD third-person check |
-| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓, P4-03 ✓, P4-04 ✓ (W1, W2, W4 on anvil) | No watcher service loop yet (`main.ts`): pieces are tested, not deployed |
+| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓, P4-03 ✓, P4-04 ✓ (W1, W2, W4 on anvil); watcher service runnable | Watcher not deployed to staging yet (needs an ECS service + terraform) |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
 | P7 Scale & enterprise | not started | |
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-05: P4-03/04 gaps: watcher service, per-agent grace, watch-key rotation, delegation-checked reconciliation
+- **`@afr/secrets` (new package):** `KeyWrapper`, `kmsKeyWrapper`, `localKeyWrapper` and `OrgSecrets` moved out of `apps/api/src/secrets.ts`.
+  - The API re-exports them, so its callers are unchanged. `migrateLegacySecrets` stays in the API.
+  - It's private (apps licence), and its layer rule is `secrets → crypto`. ARCHITECTURE §3 and §4 are updated.
+- **API migration v7:**
+  - `agents.watch_grace_s`: 15–600, default 60, as in L8 §3.
+  - `watch_keys.prev_kms_ciphertext`.
+  - A trigger on `watch_keys` updates that sends NOTIFY `afr_watch_keys`.
+- **API:**
+  - `watch_grace_s` on agent create, PATCH and responses.
+  - New `POST /v1/agents/{id}/watch-key/rotate` (write roles, audited): returns the new key once and keeps the previous one sealed.
+  - `openapi.json` and the client types are regenerated.
+- **Matcher:**
+  - Grace comes from each candidate's agent.
+  - `watchKeys` resolves the current key and the previous one. The best match under any key wins, and the verdict keeps that key's commitments.
+  - `forgetKeys` zeroes and drops cached keys on `afr_watch_keys`.
+- **Reconciliation:** besides the registered session key, the batch signer needs an operator-signed delegation for the lane, valid at the batch's Arkiv write time *t* (`notBefore ≤ t ≤ notAfter + 1 h`), and not revoked at *t*.
+  - Delegation loading was extracted from `verifyAgent` into `@afr/verifier`'s `loadDelegations` and `recordDelegations` (`delegations.ts`). Verifier tests are unchanged at 16/16.
+- **Service:** `runWatcher` (`service.ts`) and `main.ts`.
+  - One leader per chain (advisory lock).
+  - Follow every 2 s, sweep every 5 s and on `afr_intents`, reconcile active lanes every 60 s with the registration's writer allowlist.
+  - One LISTEN connection for all three channels. The first version used one per channel and starved a small pool; the e2e test caught it.
+  - Events are logged with no plaintext until P4-06.
+  - `node dist/main.js` builds and exits `CONFIG` without env. The image is `service.Dockerfile` with `APP=watcher`.
+- **Tests:**
+  - Watcher anvil, 9/9, 6 runs in a row:
+    - a non-operator delegation, a batch written after `notAfter + 1 h`, and one written before `notBefore` are all refused (each then alerts);
+    - per-agent 15 s grace;
+    - after a rotation, an intent under the previous key still matches.
+  - e2e Postgres, 4/4, 3 runs, now including `runWatcher` end to end on anvil:
+    - one leader while a second instance waits;
+    - per-agent grace alert;
+    - rotation through the trigger: old-key and new-key intents both match;
+    - lock released on stop.
+  - API: grace validation (15/601/30.5 rejected) and the rotate route (cross-org 404, new key returned, previous kept).
+- **Shortcuts (in code):**
+  - `local:` agents aren't reconciled because there's no registry to check delegations against; their API intents still match.
+  - Only one previous watch key is kept.
+  - The recorder must be given the rotated key by hand (config).
+- **Not done:** the watcher isn't deployed to staging. It needs an ECS service in `infra/terraform` (more monthly cost), so that's the owner's call.
+- Next: P4-05 (log auditor) and P4-06 (alert engine, notifier).
 
 ### 2026-11-05: P4-03 + P4-04: Arkiv batch reconciliation and the matcher
 - **API migration v6** (L6 §4.1):

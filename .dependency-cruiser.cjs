@@ -12,6 +12,7 @@ const ALLOWED = {
   recorder: ["core", "crypto", "store", "policy", "log"],
   sdk: ["core", "crypto", "store", "policy", "log", "recorder"],
   verifier: ["core", "crypto", "store", "identity"],
+  secrets: ["crypto"],
 };
 
 const packageRules = Object.entries(ALLOWED).map(([pkg, allowed]) => ({

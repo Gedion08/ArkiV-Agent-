@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | App | `apps/watcher` (chain followers, matcher, log auditor, alert engine), notifier lives in `apps/api` worker (L8) |
-| Depends on | `@afr/core`, `@afr/crypto` (HMAC), `@afr/store` (read), `@afr/verifier` (structural checks), `viem`, Postgres, pg-boss |
+| Depends on | `@afr/core`, `@afr/crypto` (HMAC), `@afr/store` (read), `@afr/verifier` (delegations, structural checks), `@afr/secrets` (opens watch keys), `viem`, Postgres, pg-boss |
 | Requirements | WAT-01…WAT-10 |
 | Phase | P4 (EVM single chain, UNLOGGED_TX, SEQ_GAP, BROKEN_CHAIN, ANCHOR_LAG), P6 (multi-EVM, 4337, Safe, outflow detection, kill switch, flags alerts, self-host mode), P7 (Solana) |
 
@@ -112,7 +112,7 @@ CREATE TABLE tx_matches (                     -- the verdict per (observed tx, a
 );
 ```
 
-- **Batch validity (P4-03):** a batch's commitments count if the frame decodes, its public section matches the entity attributes, and `batch_sig` recovers to a listed session key that the recorder registered for that lane (`session_keys`, not revoked). That is the same trust as an API intent: both come from the recorder's credentials. Delegation time bounds and the operator signature are the log auditor's `DELEGATION_MISUSE` check (§5). Reconciliation stops at a seq gap and resumes when it fills.
+- **Batch validity (P4-03):** a batch's commitments count if the frame decodes, its public section matches the entity attributes, and `batch_sig` recovers to a listed session key that is (a) registered by the recorder for that lane (`session_keys`, not revoked) and (b) delegated by the agent's operator (L1 §7, `loadDelegations` from `@afr/verifier`) at the batch's write time *t*: `notBefore ≤ t ≤ notAfter + 1 h`, scope RECORDS, no revocation effective at or before *t*. *t* is the entity's Arkiv block time (creation block × 2 s from the head). It is a tighter bound than the verifier's anchor time, because a batch is written before it is anchored. The registration's `afr.arkiv.writers` is the writer filter. Reconciliation stops at a seq gap and resumes when it fills. `local:` agents have no registry, so they aren't reconciled (API intents only).
 
 ### 4.2 Algorithm
 
@@ -140,8 +140,8 @@ onOutflow(log):                               // ERC-20/721/1155 from watched in
 onApproval(log) in an unmatched tx → covered by UNLOGGED_TX; in a matched tx with spender not in allowlist (v1 guardrails) → POLICY_BREACH
 ```
 
-- **Implementation (P4-04):** the pending set is the database, not memory. `sweep()` re-derives it from `observed_txs` rows that have no `tx_matches` verdict (or only `unlogged`, within 1 h), so a restart loses no timer and `onIntent` is simply "sweep now" (LISTEN `afr_intents`, or after a reconciliation). Events: `UNLOGGED_TX`, `TX_REPLACED` (the info event), `LATE_INTENT`, `INTENT_NOT_MINED`; the alert engine (§6, P4-06) turns them into alerts. Watch keys are opened from `watch_keys` (sealed per org, agent key as AAD) through an injected resolver.
-- **Grace:** default 60 s, configurable 15–600 s per agent. A small grace means faster alerts and more false positives during recorder hiccups.
+- **Implementation (P4-04):** the pending set is the database, not memory. `sweep()` re-derives it from `observed_txs` rows that have no `tx_matches` verdict (or only `unlogged`, within 1 h), so a restart loses no timer and `onIntent` is simply "sweep now" (LISTEN `afr_intents`, or after a reconciliation). Events: `UNLOGGED_TX`, `TX_REPLACED` (the info event), `LATE_INTENT`, `INTENT_NOT_MINED`; the alert engine (§6, P4-06) turns them into alerts. Watch keys are opened from `watch_keys` (sealed per org, agent key as AAD): the current one and, after a rotation, the previous one, so intents committed before the recorder picked up the new key still match. The trigger on `watch_keys` (NOTIFY `afr_watch_keys`) drops the cached keys.
+- **Grace:** default 60 s, configurable 15–600 s per agent (`agents.watch_grace_s`, set through `PATCH /v1/agents/{id}`). A small grace means faster alerts and more false positives during recorder hiccups.
 - **Intent never mined:** an intent with no on-chain match after 1 h is an info event (`INTENT_NOT_MINED`: dropped/replaced tx). It feeds the timeline.
 
 ---
@@ -213,6 +213,8 @@ Pre-signed revocations: during delegation, the operator can also sign a `Revocat
 ---
 
 ## 7. Deployment modes
+
+**Service (`apps/watcher`, `node dist/main.js`):** one process per watched chain, one leader per chain (pg advisory lock `0xafa0c5 << 32 + chain_id`). Every 2 s: follow the head. Every 5 s, and on NOTIFY `afr_intents`: sweep the matcher. Every 60 s: reconcile every active lane. It holds two dedicated connections: the lock, and one LISTEN for `watched_changed`, `afr_intents` and `afr_watch_keys`. Env: `AFR_PG_URL`, `AFR_WATCH_RPC_URL`, `AFR_WATCH_CHAIN_ID` (84532), `AFR_IDENTITY_RPC_URL`, `AFR_IDENTITY_CHAIN_ID` (84532), `ARKIV_ACCESS_KEY` (read-only store), and the API's KEK (`AFR_KMS_ENVELOPE_KEY_ID`, or `AFR_API_LOCAL_KEK` for dev). Image: `service.Dockerfile` with `APP=watcher`.
 
 | Mode | Matching | Plaintext | Who runs it |
 |---|---|---|---|

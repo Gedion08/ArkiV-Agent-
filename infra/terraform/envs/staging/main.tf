@@ -1,4 +1,4 @@
-# Staging (L11 §2, P3-12): network, RDS, ECS cluster with the api and anchor services, KMS keys, ECR and
+# Staging (L11 §2, P3-12, P4): network, RDS, ECS cluster with the api, anchor and watcher services, KMS keys, ECR and
 # empty Secrets Manager entries. Secret values are set out of band (never in tfstate). Plan and apply by
 # hand from an operator's AWS session in the staging account; see ../../README.md.
 
@@ -29,6 +29,10 @@ variable "anchor_image_tag" {
 }
 
 variable "api_image_tag" {
+  type = string
+}
+
+variable "watcher_image_tag" {
   type = string
 }
 
@@ -107,18 +111,22 @@ module "kms" {
   source             = "../../modules/kms"
   name               = local.name
   anchor_role_arn    = module.anchor.task_role_arn
-  envelope_role_arns = [module.api.task_role_arn]
+  envelope_role_arns = [module.api.task_role_arn, module.watcher.task_role_arn] # the watcher opens watch keys
   alert_topic_arn    = aws_sns_topic.alerts.arn
 }
 
 module "rds" {
-  source                    = "../../modules/rds"
-  name                      = local.name
-  vpc_id                    = module.network.vpc_id
-  subnet_ids                = module.network.private_subnet_ids
-  client_security_group_ids = [module.api.security_group_id, module.anchor.security_group_id]
-  kms_key_arn               = module.kms.envelope_key_arn
-  multi_az                  = false # staging; prod is Multi-AZ (L11 §2)
+  source     = "../../modules/rds"
+  name       = local.name
+  vpc_id     = module.network.vpc_id
+  subnet_ids = module.network.private_subnet_ids
+  client_security_group_ids = [
+    module.api.security_group_id,
+    module.anchor.security_group_id,
+    module.watcher.security_group_id,
+  ]
+  kms_key_arn = module.kms.envelope_key_arn
+  multi_az    = false # staging; prod is Multi-AZ (L11 §2)
   # staging runs in an AWS Free plan account: micro, 1-day backups, no Performance Insights
   instance_class        = "db.t4g.micro"
   allocated_storage_gb  = 20
@@ -127,7 +135,7 @@ module "rds" {
 }
 
 resource "aws_ecr_repository" "this" {
-  for_each             = toset(["api", "anchor"])
+  for_each             = toset(["api", "anchor", "watcher"])
   name                 = "afr/${each.key}"
   image_tag_mutability = "IMMUTABLE"
   image_scanning_configuration {
@@ -143,6 +151,9 @@ resource "aws_secretsmanager_secret" "this" {
     "anchor/arkiv-access-key",
     "anchor/arkiv-writer-key",
     "api/pg-url",
+    "watcher/pg-url",
+    "watcher/rpc-url",
+    "watcher/arkiv-access-key",
   ])
   name = "${local.name}/${each.key}"
 }
@@ -182,6 +193,40 @@ module "anchor" {
       Effect   = "Allow"
       Action   = ["kms:Sign", "kms:GetPublicKey", "kms:DescribeKey"]
       Resource = module.kms.anchor_key_arn
+    }]
+  })
+}
+
+# L6 §7: follows Base Sepolia, matches intents, reconciles Arkiv batches. Leader-locked per chain; it only
+# decrypts (watch keys under the org DEKs) and reads Arkiv with a throwaway writer key and a zero spend cap.
+module "watcher" {
+  source           = "../../modules/ecs-service"
+  name             = "${local.name}-watcher"
+  cluster_arn      = aws_ecs_cluster.this.arn
+  vpc_id           = module.network.vpc_id
+  subnet_ids       = module.network.private_subnet_ids
+  image            = "${aws_ecr_repository.this["watcher"].repository_url}:${var.watcher_image_tag}"
+  desired_count    = 1
+  cpu_architecture = var.cpu_architecture
+  single_task      = true
+  environment = {
+    AFR_WATCH_CHAIN_ID      = "84532"
+    AFR_IDENTITY_CHAIN_ID   = "84532"
+    AFR_KMS_ENVELOPE_KEY_ID = module.kms.envelope_key_arn
+    AWS_REGION              = var.region
+  }
+  secrets = {
+    AFR_PG_URL           = aws_secretsmanager_secret.this["watcher/pg-url"].arn
+    AFR_WATCH_RPC_URL    = aws_secretsmanager_secret.this["watcher/rpc-url"].arn
+    AFR_IDENTITY_RPC_URL = aws_secretsmanager_secret.this["watcher/rpc-url"].arn # same chain
+    ARKIV_ACCESS_KEY     = aws_secretsmanager_secret.this["watcher/arkiv-access-key"].arn
+  }
+  task_policy_json = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["kms:Decrypt", "kms:DescribeKey"]
+      Resource = module.kms.envelope_key_arn
     }]
   })
 }

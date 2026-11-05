@@ -10,14 +10,8 @@ import {
   batchDigest,
   batchRoot,
   chainRoot,
-  DELEGATION_SCOPE,
-  EIP712_TYPES,
-  isLocalAgentId,
   LIMITS,
-  parseAgentId,
   recoverRecordSigner,
-  type StatementType,
-  typedData,
   verifyAnchorProof,
   ZERO_HASH,
 } from "@afr/core";
@@ -33,6 +27,12 @@ import {
 } from "@afr/store";
 import { type Hex, keccak256, recoverTypedDataAddress, type TypedDataDefinition } from "viem";
 import { epochKek, openBatch } from "./decrypt.js";
+import {
+  identityChainId,
+  loadDelegations,
+  recordDelegations,
+  typedStatement,
+} from "./delegations.js";
 import type { AnchorReader, IdentityReader } from "./readers.js";
 
 export const VERIFIER_VERSION = "@afr/verifier@0.1.0"; // keep in step with package.json
@@ -90,13 +90,6 @@ export interface VerifyOptions {
   now?: () => Date;
 }
 
-interface Delegation {
-  lane: number;
-  scope: number;
-  notBefore: bigint;
-  notAfter: bigint;
-}
-
 interface ValidAnchor {
   seqTo: bigint;
   chainRoot: Hex;
@@ -117,16 +110,7 @@ const decode = (payload: Uint8Array): Record<string, unknown> | undefined => {
   }
 };
 
-/** EIP-712 typed data from a JSON-boundary message (uint fields as decimal strings → bigint). */
-function typed(chainId: bigint, type: StatementType, m: Record<string, unknown>) {
-  const msg = Object.fromEntries(
-    EIP712_TYPES[type].map(({ name, type: t }) => {
-      const v = m[name];
-      return [name, t.startsWith("uint") && typeof v === "string" ? BigInt(v) : v];
-    }),
-  );
-  return typedData(chainId, type, msg) as unknown as TypedDataDefinition;
-}
+const typed = typedStatement;
 
 async function recoverTyped(td: TypedDataDefinition, sig: unknown): Promise<Hex | undefined> {
   if (typeof sig !== "string") return undefined;
@@ -134,9 +118,6 @@ async function recoverTyped(td: TypedDataDefinition, sig: unknown): Promise<Hex 
     .then((a) => a.toLowerCase() as Hex)
     .catch(() => undefined);
 }
-
-const identityChainId = (agentId: string) =>
-  isLocalAgentId(agentId) ? 8453n : parseAgentId(agentId).chainId;
 
 export async function verifyAgent(agentId: string, o: VerifyOptions): Promise<VerifyReport> {
   const now = o.now ?? (() => new Date());
@@ -218,67 +199,15 @@ export async function verifyAgent(agentId: string, o: VerifyOptions): Promise<Ve
     add({ code: "NO_WRITER_LIST", severity: "warn", detail: "reading every writer's entities" });
     writers = undefined;
   }
-  const createdBy = writers ? { createdBy: writers as Hex[] } : {};
 
   // 2 delegations and revocations (invalid ones are ignored, with a warning)
-  const delegations = new Map<Hex, Delegation[]>();
-  for await (const e of o.store.query({
-    schema: "afr.delegation.v1",
-    where: { agent_key: { eq: ak } },
-    ...createdBy,
-  })) {
-    const d = decode(e.payload);
-    const m = d?.message;
-    const sk = lower(isObj(m) ? m.sessionKey : undefined);
-    let ok = false;
-    try {
-      ok =
-        isObj(m) &&
-        sk !== undefined &&
-        lower(m.agentKey) === ak &&
-        sk === e.attrs.session_key.toLowerCase() &&
-        BigInt(m.lane as string) === e.attrs.lane &&
-        (await opSig(typed(chainId, "Delegation", m), d?.sig, BigInt(m.notBefore as string)));
-    } catch (err) {
-      if (err instanceof AfrError) throw err;
-    }
-    if (!ok || !isObj(m) || !sk) {
-      add({ code: "DELEGATION_BAD_SIG", severity: "warn", detail: e.ref.key });
-      continue;
-    }
-    // shortcut: depth-1 only (operator → session key); identity-key sub-delegation (L1 §7.1) lands with that recorder mode
-    delegations.set(sk, [
-      ...(delegations.get(sk) ?? []),
-      {
-        lane: Number(m.lane),
-        scope: Number(m.scope),
-        notBefore: BigInt(m.notBefore as string),
-        notAfter: BigInt(m.notAfter as string),
-      },
-    ]);
-  }
-  const revokedAt = new Map<Hex, bigint>();
-  for await (const e of o.store.query({
-    schema: "afr.revocation.v1",
-    where: { agent_key: { eq: ak } },
-  })) {
-    const d = decode(e.payload);
-    const m = d?.message;
-    const sk = lower(isObj(m) ? m.sessionKey : undefined);
-    try {
-      if (!isObj(m) || !sk || lower(m.agentKey) !== ak) continue;
-      const at = BigInt(m.effectiveAt as string);
-      if (!(await opSig(typed(chainId, "Revocation", m), d?.sig, at))) continue;
-      const prev = revokedAt.get(sk);
-      if (prev === undefined || at < prev) revokedAt.set(sk, at);
-    } catch (err) {
-      if (err instanceof AfrError) throw err;
-    }
-  }
-  const delegatedFor = (sk: Hex, lane: number) =>
-    (delegations.get(sk) ?? []).filter(
-      (d) => d.lane === lane && (d.scope & DELEGATION_SCOPE.RECORDS) !== 0,
-    );
+  const { delegations, revokedAt, invalid } = await loadDelegations(agentId, {
+    store: o.store,
+    identity: o.identity,
+    ...(writers ? { writers: writers as Hex[] } : {}),
+  });
+  for (const key of invalid) add({ code: "DELEGATION_BAD_SIG", severity: "warn", detail: key });
+  const delegatedFor = (sk: Hex, lane: number) => recordDelegations({ delegations }, sk, lane);
 
   const lanes =
     o.lane !== undefined

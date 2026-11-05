@@ -5,3 +5,4 @@ export * from "./db.js";
 export * from "./follower.js";
 export * from "./matcher.js";
 export * from "./reconcile.js";
+export * from "./service.js";

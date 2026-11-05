@@ -127,6 +127,13 @@ const MIGRATIONS: string[] = [
      PRIMARY KEY (chain_id, tx_hash, agent_id));
    CREATE INDEX tx_matches_tx_commit ON tx_matches (agent_id, tx_commit);
    CREATE INDEX tx_matches_nonce_commit ON tx_matches (agent_id, nonce_commit);`,
+  // v7: per-agent UNLOGGED_TX grace (L6 §4.2, L8 §3) and watch-key rotation: the previous key stays so intents
+  // sealed before the recorder picked up the new one still match; afr_watch_keys tells the watcher to reload.
+  `ALTER TABLE agents ADD COLUMN watch_grace_s int NOT NULL DEFAULT 60 CHECK (watch_grace_s BETWEEN 15 AND 600);
+   ALTER TABLE watch_keys ADD COLUMN prev_kms_ciphertext bytea;
+   CREATE FUNCTION watch_key_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+     PERFORM pg_notify('afr_watch_keys', NEW.agent_id::text); RETURN NULL; END $$;
+   CREATE TRIGGER watch_key_changed AFTER UPDATE ON watch_keys FOR EACH ROW EXECUTE FUNCTION watch_key_changed();`,
 ];
 
 /** Applies pending migrations, one transaction each; an advisory lock keeps concurrent starts serial. */

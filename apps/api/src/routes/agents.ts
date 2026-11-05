@@ -22,6 +22,8 @@ import { Addr, AddrOut, AgentParam, Hex32, Lane, Ok, OrgParam, U64 } from "../sc
 import type { OrgSecrets } from "../secrets.js";
 
 const Cents = z.string().regex(/^\d{1,18}$/);
+/** L6 §4.2: seconds before an unmatched tx raises UNLOGGED_TX. */
+const Grace = z.number().int().min(15).max(600);
 const Status = z.enum(["active", "paused", "archived"]);
 const Limit = z.coerce.number().int().min(1).max(500).default(100);
 const Iso = z.string();
@@ -32,6 +34,7 @@ const AgentCreate = z.strictObject({
   privacy_level: z.union([z.literal(0), z.literal(1), z.literal(2)]).default(0),
   retention_days: z.number().int().positive().max(36_500).default(365),
   approval_threshold_cents: Cents.optional(),
+  watch_grace_s: Grace.default(60),
 });
 // privacy / retention changes need a new signed AgentProfile (`profile_statement`), not a PATCH (§4.3)
 const AgentPatch = z
@@ -39,6 +42,7 @@ const AgentPatch = z
     name: z.string().min(1).max(200).optional(),
     approval_threshold_cents: Cents.nullable().optional(),
     status: Status.optional(),
+    watch_grace_s: Grace.optional(),
   })
   .refine((b) => Object.keys(b).length > 0, { message: "empty patch" });
 const Agent = z.strictObject({
@@ -51,6 +55,7 @@ const Agent = z.strictObject({
   retention_days: z.number().int(),
   approval_threshold_cents: Cents.nullable(),
   status: Status,
+  watch_grace_s: z.number().int(),
 });
 const KeyParam = AgentParam.extend({ keyId: z.string().regex(/^[0-9a-f]{16}$/) });
 const WatchedKind = z.enum(["eoa", "smart_account", "safe", "session_key"]);
@@ -103,6 +108,7 @@ interface AgentRow {
   retention_days: number;
   approval_threshold_cents: string | null;
   status: z.infer<typeof Status>;
+  watch_grace_s: number;
 }
 const agentJson = (a: AgentRow): z.infer<typeof Agent> => ({
   id: a.id,
@@ -114,6 +120,7 @@ const agentJson = (a: AgentRow): z.infer<typeof Agent> => ({
   retention_days: a.retention_days,
   approval_threshold_cents: a.approval_threshold_cents,
   status: a.status,
+  watch_grace_s: a.watch_grace_s,
 });
 const iso = (d: Date | null) => d?.toISOString() ?? null;
 const hexOrNull = (b: Buffer | null) => (b ? bufHex(b) : null);
@@ -198,8 +205,9 @@ export const agentRoutes: ZodPlugin<
         const a = await inOrg(pool, org, async (q) => {
           await requireRole(q, org, uid(req), WRITE_ROLES);
           const { rows } = await q.query<AgentRow>(
-            `INSERT INTO agents (org_id, agent_id, agent_key, name, privacy_level, retention_days, approval_threshold_cents)
-             VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING RETURNING *`,
+            `INSERT INTO agents (org_id, agent_id, agent_key, name, privacy_level, retention_days, approval_threshold_cents,
+               watch_grace_s)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING RETURNING *`,
             [
               org,
               b.agent_id,
@@ -208,6 +216,7 @@ export const agentRoutes: ZodPlugin<
               b.privacy_level,
               b.retention_days,
               b.approval_threshold_cents ?? null,
+              b.watch_grace_s,
             ],
           );
           // the unique indexes see other orgs' rows too, so a taken agent_id conflicts even under RLS
@@ -255,6 +264,7 @@ export const agentRoutes: ZodPlugin<
              name = CASE WHEN $2 THEN $3 ELSE name END,
              approval_threshold_cents = CASE WHEN $4 THEN $5::bigint ELSE approval_threshold_cents END,
              status = CASE WHEN $6 THEN $7 ELSE status END,
+             watch_grace_s = CASE WHEN $8 THEN $9::int ELSE watch_grace_s END,
              updated_at = now()
            WHERE id = $1 RETURNING *`,
           [
@@ -265,11 +275,39 @@ export const agentRoutes: ZodPlugin<
             b.approval_threshold_cents ?? null,
             b.status !== undefined,
             b.status ?? null,
+            b.watch_grace_s !== undefined,
+            b.watch_grace_s ?? null,
           ],
         );
         await audit(q, req, a.org_id, "agent.update", a.id);
         return { agent: agentJson(rows[0] as AgentRow) };
       }),
+  );
+
+  // L4 §10 watch-key rotation: the new key is returned once (put it in the recorder config); the previous one
+  // is kept so the watcher still matches intents committed under it, and only one previous key is kept
+  app.post(
+    "/v1/agents/:id/watch-key/rotate",
+    {
+      ...auth,
+      schema: { params: AgentParam, response: { 200: z.strictObject({ watch_key: Hex32 }) } },
+    },
+    async (req) => {
+      const watchKey = randomBytes(32);
+      try {
+        await withAgent(req.params.id, uid(req), WRITE_ROLES, async (q, a) => {
+          await q.query(
+            `UPDATE watch_keys SET prev_kms_ciphertext = kms_ciphertext, kms_ciphertext = $2, rotated_at = now()
+             WHERE agent_id = $1`,
+            [a.id, await secrets.seal(a.org_id, watchKey, a.agent_key)],
+          );
+          await audit(q, req, a.org_id, "agent.watch_key.rotate", a.id);
+        });
+        return { watch_key: bufHex(watchKey) };
+      } finally {
+        watchKey.fill(0);
+      }
+    },
   );
 
   // ── recorder keys ──
