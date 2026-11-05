@@ -40,7 +40,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
   - `fr verify agent …:10593 --reader-key` from a clean env: `PASS (full)`.
   - `testnet-e2e.ts --reader-key FILE` grants a kept reader instead of a throwaway one.
 - **npm without an org:** `tools/scripts/pack-github-release.mjs` packs the 8 `@afr/*` tarballs with sibling-URL deps plus `SHA256SUMS` for one GitHub Release, so `npx <release url>/afr-cli-0.1.0.tgz` works. There's no provenance on this path.
-- **Found, not fixed (public API):** `resolveAgent` rejects an empty `tokenURI` (URI_UNSUPPORTED), so `fr agent update-registration` can't write a freshly `register()`ed agent's first file. 10593's file was built from 10588's with the same `buildRegistrationWithAfr`/`encodeSetAgentURI`. The fix (treat `""` as an empty registration) changes `@afr/identity`'s behaviour and needs a decision.
+- **Fixed, with the owner's OK (`@afr/identity` behaviour):** `resolveAgent` used to reject an empty `tokenURI` (URI_UNSUPPORTED), so `fr agent update-registration` couldn't write a freshly `register()`ed agent's first file. An empty URI now resolves to a registration with no services. A CLI test fails before the fix and passes after. 10593's file had already been built from 10588's.
 - **Running cost:** staging bills the AWS account, roughly $100/month (NAT, endpoints, ALB, RDS, Fargate). Tear-down: `terraform destroy` after disabling RDS `deletion_protection`.
 
 ### 2026-11-05: P3 DoD: verifier README, seeded demo agent, npm release workflow, format v1-rc

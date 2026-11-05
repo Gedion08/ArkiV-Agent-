@@ -215,6 +215,7 @@ Daily: for each agent with `expiry=rolling`, query batches/checkpoints with `$ex
 - The `writers` list here and in the signed `AgentProfile` must match. The verifier warns if they differ.
 - CLI (P3-10/11): `fr agent update-registration <agentId> --out registration.json [--writer 0x… …] [--uri https://…|ipfs://…] [--endpoint URL]`.
   - It reads the current file through `tokenURI` and replaces or adds the single `afr` entry. Every other field and service is kept.
+  - An agent created with a bare `register()` has an empty `tokenURI`. `resolveAgent` reads that as a registration with no services, so the first file holds just the `afr` entry. A verifier sees no `afr` entry until `setAgentURI` lands.
   - It adds the agent's own `registrations[]` row if that row is missing.
   - The anchor is the latest `ANCHOR_CONTRACTS` entry for the identity chain.
   - Writers come from `--writer`, otherwise from the existing `afr` entry.

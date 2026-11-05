@@ -18,6 +18,7 @@ import {
   type AfrService,
   findAfrService,
   parseRegistration,
+  REGISTRATION_TYPE,
   type Registration,
 } from "./registration.js";
 import { type FetchUriOptions, fetchUriJson } from "./uri.js";
@@ -121,7 +122,11 @@ export async function resolveAgent(
     functionName: "tokenURI",
     args: [tokenId],
   });
-  const registration = parseRegistration(await fetchUriJson(uri, opts));
+  // a bare register() leaves tokenURI empty: no registration file yet, so no services (and no afr entry)
+  const registration =
+    uri === ""
+      ? { type: REGISTRATION_TYPE, services: [] }
+      : parseRegistration(await fetchUriJson(uri, opts));
   const afr = findAfrService(registration);
   const wallet = await rpc
     .readContract({

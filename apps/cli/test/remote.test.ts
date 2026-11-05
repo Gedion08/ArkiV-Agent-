@@ -249,6 +249,23 @@ describe("fr agent update-registration", () => {
     expect(JSON.parse(readFileSync(out2, "utf8"))).toEqual(file);
   });
 
+  test("a freshly register()ed agent (empty tokenURI) gets its first registration file", async () => {
+    const { state, deps: d } = registry("");
+    const out = join(tmp(), "reg.json");
+    const r = await run(["agent", "update-registration", ID, "--out", out, "--writer", WRITER], d);
+    expect(r.code).toBe(0);
+    const file = JSON.parse(readFileSync(out, "utf8"));
+    expect(file.type).toBe("https://eips.ethereum.org/EIPS/eip-8004#registration-v1");
+    expect(file.services.map((x: { name: string }) => x.name)).toEqual(["afr"]);
+    expect(file.registrations).toEqual([
+      { agentId: 42, agentRegistry: "eip155:84532:0x8004a818bfb912233c491871b3d84c89a494bd9e" },
+    ]);
+    // the URI the tx sets resolves back to an agent whose afr entry names the writer
+    state.uri = JSON.parse(r.out).uri;
+    const a = await resolveAgent(ID, d.identityRpc);
+    expect(a.afr?.afr.arkiv.writers).toEqual([WRITER.toLowerCase()]);
+  });
+
   test("--uri: the file is hosted by the operator; the calldata points there", async () => {
     const { deps: d } = registry(dataUri(existing));
     const argv = ["agent", "update-registration", ID, "--writer", WRITER, "--out"];
