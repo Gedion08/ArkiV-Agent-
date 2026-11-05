@@ -10,13 +10,29 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
 | P3 Anchor + verify | **done, with exceptions** (owner's call, 2026-11-05): all 13 tickets done. P3-12 ✓ A4 met: the staging KMS key `0xd9b2…b27d` anchored epoch 4 (tx `0xfe0e5b81…96bc`). Exit demo ✓: structural, full (`…:10593`), mirror corruption FAIL, anchors on BaseScan | Exceptions: P3-13's 3 green nights (GitHub Actions locked by a billing issue; secrets set); npm provenance (needs Actions + an `@afr` org; the CLI ships as GitHub Release tarballs for `npx`); the DoD third-person check |
-| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓, P4-03 ✓, P4-04 ✓ (W1, W2, W4 on anvil); watcher service runnable | Watcher not deployed to staging yet (needs an ECS service + terraform) |
+| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓, P4-03 ✓, P4-04 ✓ (W1, W2, W4 on anvil); watcher service runnable | Watcher on staging since 2026-11-05 (ECS `afr-staging-watcher`, Base Sepolia). No end-to-end alert on staging yet (P4-07 canary) |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
 | P7 Scale & enterprise | not started | |
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-05: watcher deployed to staging
+- **Terraform (staging):**
+  - new `afr/watcher` ECR repo;
+  - secrets `afr-staging/watcher/{pg-url, rpc-url, arkiv-access-key}`, copied secret to secret from the API and anchor values and never printed;
+  - ECS service `afr-staging-watcher`: one task at 0.25 vCPU / 512 MB, x86, single_task.
+  - Its task role may only `kms:Decrypt` and `kms:DescribeKey` on the envelope key. The key policy now names the API and watcher roles, and RDS ingress allows the watcher's SG.
+  - Applied from a reviewed saved plan: 11 added, 3 changed, 1 replaced (the API task definition).
+  - The RDS parameter group "change" is `apply_method` drift on `rds.force_ssl=1`, a no-op that shows in every plan.
+- **Images:** `afr/api:e043235` (it carries migrations v6 and v7, applied at boot) and `afr/watcher:f8149b0`.
+  - The first watcher build failed: its test-only `@afr/recorder` dependency pulled native `better-sqlite3` into the closure.
+  - The recorder-driven matcher test moved to `tools/e2e/test/watcher-matcher.anvil.test.ts`. W2 now signs its txs locally because viem's request inference overflowed tsc's stack in the e2e program.
+- **Live:** api 1/1, watcher 1/1, anchor 1/1. API `/healthz` ok.
+  - Watcher log: `watcher leader lock held` on chain 84532, and no `watcher_step_failed` or `reconcile_failed` in its first minutes (about 90 follow ticks, 3 reconcile passes).
+- **Cost:** about +$10/month (Fargate task, 3 secrets, logs), so staging is now about $110/month.
+- **Not verified:** an unlogged tx raising `UNLOGGED_TX` on staging. That needs a watched address for agent 10593 and a raw tx signed by its wallet; P4-07's canary does exactly this.
 
 ### 2026-11-05: P4-03/04 gaps: watcher service, per-agent grace, watch-key rotation, delegation-checked reconciliation
 - **`@afr/secrets` (new package):** `KeyWrapper`, `kmsKeyWrapper`, `localKeyWrapper` and `OrgSecrets` moved out of `apps/api/src/secrets.ts`.
@@ -57,7 +73,6 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
   - `local:` agents aren't reconciled because there's no registry to check delegations against; their API intents still match.
   - Only one previous watch key is kept.
   - The recorder must be given the rotated key by hand (config).
-- **Not done:** the watcher isn't deployed to staging. It needs an ECS service in `infra/terraform` (more monthly cost), so that's the owner's call.
 - Next: P4-05 (log auditor) and P4-06 (alert engine, notifier).
 
 ### 2026-11-05: P4-03 + P4-04: Arkiv batch reconciliation and the matcher
