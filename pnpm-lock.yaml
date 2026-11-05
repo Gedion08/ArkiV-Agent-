@@ -373,9 +373,6 @@ importers:
         specifier: 2.57.7
         version: 2.57.7(typescript@6.0.3)(zod@4.6.7)
     devDependencies:
-      '@afr/recorder':
-        specifier: workspace:*
-        version: link:../../packages/recorder
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1
@@ -597,6 +594,9 @@ importers:
       '@afr/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@afr/recorder':
+        specifier: workspace:*
+        version: link:../../packages/recorder
       '@afr/store':
         specifier: workspace:*
         version: link:../../packages/store

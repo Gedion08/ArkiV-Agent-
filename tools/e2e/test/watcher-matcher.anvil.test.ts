@@ -12,11 +12,17 @@ import { join } from "node:path";
 import { parseConfig, Recorder } from "@afr/recorder";
 import { MemoryChain, MemoryStore } from "@afr/store";
 import { staticIdentityReader } from "@afr/verifier";
+import { HeadFollower, Matcher, MemoryWatcherDb, reconcileLane, WatchedSet } from "@afr/watcher";
 import { type Hex, keccak256 } from "viem";
 import { foundry } from "viem/chains";
 import { describe, expect, test } from "vitest";
-import { HeadFollower, Matcher, MemoryWatcherDb, reconcileLane, WatchedSet } from "../src/index.js";
-import { ANVIL, CHAIN, SINK, useAnvil, WATCHED } from "./fixtures/anvil.js";
+import {
+  ANVIL,
+  CHAIN,
+  SINK,
+  useAnvil,
+  WATCHED,
+} from "../../../apps/watcher/test/fixtures/anvil.js";
 
 const anvil = useAnvil();
 const AGENT = "eip155:84532:0x00000000000000000000000000000000000a8004:7";
@@ -169,28 +175,26 @@ describe.skipIf(!ANVIL)("matcher (anvil + recorder)", () => {
 
   test("W2: a sped-up tx matches by nonce (TX_REPLACED); an intent never mined is reported after 1 h", async () => {
     const w = await world();
-    const wallet = anvil.wallet();
     const nonce = await anvil.pc.getTransactionCount({ address: WATCHED.address });
-    const req = await wallet.prepareTransactionRequest({
-      account: WATCHED,
-      chain: foundry,
+    // signed locally, never sent (explicit fields: viem's request inference overflows tsc's stack here)
+    const fees = await anvil.pc.estimateFeesPerGas();
+    const tx = {
+      chainId: foundry.id,
+      type: "eip1559",
       to: SINK,
       value: 1n,
       nonce,
-    });
-    const original = keccak256(
-      await wallet.signTransaction({ ...req, account: WATCHED, chain: foundry }),
-    );
+      gas: 21_000n,
+    } as const;
+    const original = keccak256(await WATCHED.signTransaction({ ...tx, ...fees }));
     await w.log(original, nonce); // logged, then replaced before it was mined
-    const fee = (req.maxFeePerGas ?? 0n) * 2n;
-    const replacement = await wallet.sendTransaction({
-      account: WATCHED,
-      chain: foundry,
-      to: SINK,
-      value: 1n,
-      nonce,
-      maxFeePerGas: fee,
-      maxPriorityFeePerGas: fee,
+    const fee = fees.maxFeePerGas * 2n;
+    const replacement = await anvil.pc.sendRawTransaction({
+      serializedTransaction: await WATCHED.signTransaction({
+        ...tx,
+        maxFeePerGas: fee,
+        maxPriorityFeePerGas: fee,
+      }),
     });
     await anvil.pc.waitForTransactionReceipt({ hash: replacement });
     expect(await w.sweep()).toMatchObject([{ type: "TX_REPLACED", tx: replacement }]);

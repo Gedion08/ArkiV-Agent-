@@ -18,7 +18,7 @@ There's no domain yet, so the HTTPS listener uses a self-signed certificate impo
    cp infra/terraform/envs/staging/backend.hcl.example infra/terraform/envs/staging/backend.hcl  # staging: bucket afr-tfstate-staging-668857951374, region eu-north-1
    terraform -chdir=infra/terraform/envs/staging init -backend-config=backend.hcl
    ```
-2. **Images.** Build the anchor and api images and push them to the `afr/anchor` and `afr/api` ECR repos. Tags are immutable, so use the git sha.
+2. **Images.** Build the anchor, api and watcher images and push them to the `afr/anchor`, `afr/api` and `afr/watcher` ECR repos (`--build-arg APP=watcher` for the watcher). Tags are immutable, so use the git sha. The watcher needs the API's migrations (v6, v7), so deploy an API image from the same sha or later.
    ```bash
    docker build -f infra/docker/service.Dockerfile --build-arg APP=anchor -t afr/anchor:$(git rev-parse --short HEAD) .
    ```
@@ -28,10 +28,10 @@ There's no domain yet, so the HTTPS listener uses a self-signed certificate impo
    The repo doesn't exist until the first apply, so apply once with `-target=aws_ecr_repository.this` first, then push.
 3. **Plan and apply.**
    ```bash
-   terraform -chdir=infra/terraform/envs/staging plan -var certificate_arn=arn:aws:acm:… -var anchor_image_tag=<sha> -var api_image_tag=<sha> -var siwe_domain=app.staging.example -out tfplan
+   terraform -chdir=infra/terraform/envs/staging plan -var certificate_arn=arn:aws:acm:… -var anchor_image_tag=<sha> -var api_image_tag=<sha> -var watcher_image_tag=<sha> -var siwe_domain=app.staging.example -out tfplan
    terraform -chdir=infra/terraform/envs/staging apply tfplan
    ```
-4. **Secrets.** Fill each `afr-staging/*` secret with `aws secretsmanager put-secret-value`. Pipe the values in from stdin (`--secret-string file:///dev/stdin`) so they never show up on screen. You need the PG URL, the Base Sepolia RPC URL, the Arkiv access key and the Arkiv writer key.
+4. **Secrets.** Fill each `afr-staging/*` secret with `aws secretsmanager put-secret-value`. Pipe the values in from stdin (`--secret-string file:///dev/stdin`) so they never show up on screen. You need the PG URL, the Base Sepolia RPC URL, the Arkiv access key and the Arkiv writer key. The watcher (`afr-staging/watcher/*`) takes the same PG URL, RPC URL and access key, but no writer key: it reads Arkiv with a throwaway key and a zero spend cap.
    - Build the PG URL from the RDS-managed master secret: `postgresql://afr_admin:<url-encoded password>@<rds endpoint>:5432/afr?sslmode=verify-full`.
    - The images trust the Amazon RDS CAs (`infra/docker/rds-global-bundle.pem`, via `NODE_EXTRA_CA_CERTS`), so `verify-full` works.
 5. **Allowlist the KMS anchor key.** Derive its address from the public key. The key never leaves KMS.
@@ -55,6 +55,7 @@ These rules need CloudTrail management events in the account, for example from a
 ## Shortcuts
 
 - **API rate limits:** no Redis yet, so each API task counts its own requests (L8 §7).
+- **Watcher:** one task (single_task, leader-locked per chain), on Base Sepolia. It decrypts with the envelope key only (`kms:Decrypt`, to open watch keys). Match events go to its CloudWatch logs until the alert engine (P4-06) lands.
 - **API migrations:** the API runs them at startup, serialised by an advisory lock. A migration that breaks the running version needs an expand/contract rollout.
 - **Image architecture:** the ecs-service module defaults to ARM64. Images built on an amd64 machine without buildx need `-var cpu_architecture=X86_64`; staging runs that way today.
 - **Org and recorder key:** `tools/e2e/scripts/staging-provision.ts` signs in with SIWE as a throwaway wallet and creates an org, an agent and a recorder key, as the dashboard would. `testnet-e2e.ts --api https://… --agent …` then records through the deployment and waits for its anchor service.

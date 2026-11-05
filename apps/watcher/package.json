@@ -32,7 +32,6 @@
     "viem": "2.57.7"
   },
   "devDependencies": {
-    "@afr/recorder": "workspace:*",
     "@types/pg": "8.23.1"
   }
 }

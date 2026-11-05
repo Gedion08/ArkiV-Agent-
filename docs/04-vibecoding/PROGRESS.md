@@ -74,7 +74,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
   - `listenIntents` (LISTEN `afr_intents`) to sweep early.
   - The watch key comes from an injected resolver.
 - **Tests:**
-  - `apps/watcher/test/matcher.anvil.test.ts` uses the real recorder, with a fake API that writes intents and session keys the way the routes do:
+  - `tools/e2e/test/watcher-matcher.anvil.test.ts` uses the real recorder, with a fake API that writes intents and session keys the way the routes do:
     - W1: logged tx is exact; raw tx gives `UNLOGGED_TX` at 61 s, not 59 s, and only once.
     - W2: speed-up gives `TX_REPLACED`, and the never-broadcast intent gives `INTENT_NOT_MINED` (the replaced one doesn't).
     - W4: dropped notice, batch reconciled at 40 s gives no alert; at 61 s it alerts, then the batch gives `LATE_INTENT`. A batch from an unregistered key adds nothing.
