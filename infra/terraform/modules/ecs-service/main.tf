@@ -74,6 +74,12 @@ variable "alb" {
   default = null
 }
 
+variable "command" {
+  description = "Overrides the image's CMD (e.g. the watcher image's canary entry point)."
+  type        = list(string)
+  default     = null
+}
+
 variable "log_retention_days" {
   type    = number
   default = 30
@@ -171,6 +177,7 @@ resource "aws_ecs_task_definition" "this" {
     essential              = true
     user                   = "1000"
     readonlyRootFilesystem = true
+    command                = var.command
     stopTimeout            = 60
     environment            = [for k, v in var.environment : { name = k, value = v }]
     secrets                = [for k, v in var.secrets : { name = k, valueFrom = v }]
@@ -215,6 +222,10 @@ resource "aws_ecs_service" "this" {
 
 output "task_role_arn" {
   value = aws_iam_role.task.arn
+}
+
+output "log_group_name" {
+  value = aws_cloudwatch_log_group.this.name
 }
 
 output "security_group_id" {

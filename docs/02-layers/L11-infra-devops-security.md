@@ -113,7 +113,7 @@ Branch protection: required checks, 1 review (2 for `packages/core`, `packages/c
 | Anchor freshness | 99 % of active lanes anchored within 2× cadence | any lane > 3× |
 | Watcher block lag | < 5 blocks | > 20 blocks for 5 min |
 | Checkpoint ingestion | p95 < 5 s | – |
-| Canary | 1 unlogged-tx alert/hour in staging and prod | missed canary → page |
+| Canary | 1 unlogged-tx alert/hour in staging and prod | missed canary → page (staging: alarms `afr-staging-canary-failed` and `-canary-missing` (no `canary_ok` for 2 h) → the `afr-staging-alerts` SNS topic) |
 
 ### 5.2 Runbooks (`infra/runbooks/*.md`, create during P5)
 

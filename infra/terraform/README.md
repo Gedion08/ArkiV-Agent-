@@ -18,7 +18,7 @@ There's no domain yet, so the HTTPS listener uses a self-signed certificate impo
    cp infra/terraform/envs/staging/backend.hcl.example infra/terraform/envs/staging/backend.hcl  # staging: bucket afr-tfstate-staging-668857951374, region eu-north-1
    terraform -chdir=infra/terraform/envs/staging init -backend-config=backend.hcl
    ```
-2. **Images.** Build the anchor, api and watcher images and push them to the `afr/anchor`, `afr/api` and `afr/watcher` ECR repos (`--build-arg APP=watcher` for the watcher). Tags are immutable, so use the git sha. The watcher needs the API's migrations (v6, v7), so deploy an API image from the same sha or later.
+2. **Images.** Build the anchor, api and watcher images and push them to the `afr/anchor`, `afr/api` and `afr/watcher` ECR repos (`--build-arg APP=watcher` for the watcher). Tags are immutable, so use the git sha. The watcher needs the API's migrations (v6–v8), so deploy an API image from the same sha or later.
    ```bash
    docker build -f infra/docker/service.Dockerfile --build-arg APP=anchor -t afr/anchor:$(git rev-parse --short HEAD) .
    ```
@@ -32,6 +32,11 @@ There's no domain yet, so the HTTPS listener uses a self-signed certificate impo
    terraform -chdir=infra/terraform/envs/staging apply tfplan
    ```
 4. **Secrets.** Fill each `afr-staging/*` secret with `aws secretsmanager put-secret-value`. Pipe the values in from stdin (`--secret-string file:///dev/stdin`) so they never show up on screen. You need the PG URL, the Base Sepolia RPC URL, the Arkiv access key and the Arkiv writer key. The watcher (`afr-staging/watcher/*`) takes the same PG URL, RPC URL and access key, but no writer key: it reads Arkiv with a throwaway key and a zero spend cap.
+
+   **The canary** (`afr-staging-canary`) runs the watcher image's `dist/canary-main.js` and reuses the watcher's PG and RPC secrets.
+   - **Wallet key.** `afr-staging/canary/wallet-key` holds a private key used only by the canary: generate it, pipe it in, and print only its address.
+   - **Funding.** Fund that address with Base Sepolia ETH. Each round sends two 0-value self-transfers, and below 0.0005 ETH it fails `LOW_BALANCE`.
+   - **Alarms.** They page the `afr-staging-alerts` topic: a failed round, or no passed round for 2 h. Pass `-var alert_email=…` and confirm AWS's subscription mail.
    - Build the PG URL from the RDS-managed master secret: `postgresql://afr_admin:<url-encoded password>@<rds endpoint>:5432/afr?sslmode=verify-full`.
    - The images trust the Amazon RDS CAs (`infra/docker/rds-global-bundle.pem`, via `NODE_EXTRA_CA_CERTS`), so `verify-full` works.
 5. **Allowlist the KMS anchor key.** Derive its address from the public key. The key never leaves KMS.

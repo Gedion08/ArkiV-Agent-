@@ -268,7 +268,7 @@ Pre-signed revocations: during delegation, the operator can also sign a `Revocat
 | W6 | `transferFrom` by a third party draining an approved token → `UNEXPLAINED_OUTFLOW` |
 | W7 | 4337: userop through a bundler on Anvil (EntryPoint deployed) → matched by userOpHash. Unlogged userop → alert |
 | W8 | Watcher restart mid-stream → no missed blocks (cursor), no duplicate alerts (dedupe) |
-| W9 | Canary: hourly unlogged tx in staging produces exactly one alert, auto-acked |
+| W9 | Canary: hourly unlogged tx in staging produces exactly one alert, auto-acked ✓ (`tools/e2e/test/canary.anvil.test.ts` against the real service; on staging the `afr-staging-canary` service, P4-07) |
 | W10 | Alert payloads contain no plaintext (schema test) ✓ (`apps/api/test/alerts.test.ts`: strict alert schema on responses and webhook payloads; a prose canary is never sent) |
 
 ## 11. Vibecoding prompts

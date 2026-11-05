@@ -80,7 +80,7 @@ data "aws_iam_policy_document" "alerts" {
     resources = [aws_sns_topic.alerts.arn]
     principals {
       type        = "Service"
-      identifiers = ["events.amazonaws.com"]
+      identifiers = ["events.amazonaws.com", "cloudwatch.amazonaws.com"] # cloudwatch: the canary alarms
     }
   }
 }
@@ -111,7 +111,7 @@ module "kms" {
   source             = "../../modules/kms"
   name               = local.name
   anchor_role_arn    = module.anchor.task_role_arn
-  envelope_role_arns = [module.api.task_role_arn, module.watcher.task_role_arn] # the watcher opens watch keys
+  envelope_role_arns = [module.api.task_role_arn, module.watcher.task_role_arn, module.canary.task_role_arn] # watch keys
   alert_topic_arn    = aws_sns_topic.alerts.arn
 }
 
@@ -124,6 +124,7 @@ module "rds" {
     module.api.security_group_id,
     module.anchor.security_group_id,
     module.watcher.security_group_id,
+    module.canary.security_group_id,
   ]
   kms_key_arn = module.kms.envelope_key_arn
   multi_az    = false # staging; prod is Multi-AZ (L11 §2)
@@ -154,6 +155,7 @@ resource "aws_secretsmanager_secret" "this" {
     "watcher/pg-url",
     "watcher/rpc-url",
     "watcher/arkiv-access-key",
+    "canary/wallet-key",
   ])
   name = "${local.name}/${each.key}"
 }
@@ -341,6 +343,83 @@ module "api" {
     target_group_arn  = aws_lb_target_group.api.arn
     security_group_id = aws_security_group.alb.id
   }
+}
+
+# P4-07 canary (L6 W9, L11 §5): the watcher image's canary entry point, one round an hour. It provisions its
+# own agent (a fresh org DEK and watch key: kms:Encrypt/GenerateDataKey) and pages through the alerts topic
+# on a failed round or no passed round for 2 h.
+module "canary" {
+  source           = "../../modules/ecs-service"
+  name             = "${local.name}-canary"
+  cluster_arn      = aws_ecs_cluster.this.arn
+  vpc_id           = module.network.vpc_id
+  subnet_ids       = module.network.private_subnet_ids
+  image            = "${aws_ecr_repository.this["watcher"].repository_url}:${var.watcher_image_tag}"
+  command          = ["node", "dist/canary-main.js"]
+  desired_count    = 1
+  cpu_architecture = var.cpu_architecture
+  single_task      = true
+  environment = {
+    AFR_WATCH_CHAIN_ID      = "84532"
+    AFR_KMS_ENVELOPE_KEY_ID = module.kms.envelope_key_arn
+    AWS_REGION              = var.region
+  }
+  secrets = {
+    AFR_PG_URL        = aws_secretsmanager_secret.this["watcher/pg-url"].arn
+    AFR_WATCH_RPC_URL = aws_secretsmanager_secret.this["watcher/rpc-url"].arn
+    AFR_CANARY_KEY    = aws_secretsmanager_secret.this["canary/wallet-key"].arn
+  }
+  task_policy_json = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+      Resource = module.kms.envelope_key_arn
+    }]
+  })
+}
+
+resource "aws_cloudwatch_log_metric_filter" "canary" {
+  for_each       = toset(["canary_ok", "canary_failed"])
+  name           = "${local.name}-${each.key}"
+  log_group_name = module.canary.log_group_name
+  pattern        = "{ $.event = \"${each.key}\" }"
+  metric_transformation {
+    name          = each.key
+    namespace     = "AFR/Staging"
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "canary_failed" {
+  alarm_name          = "${local.name}-canary-failed"
+  alarm_description   = "A canary round failed (L11 §5): see the canary log's canary_failed code."
+  namespace           = "AFR/Staging"
+  metric_name         = "canary_failed"
+  statistic           = "Sum"
+  period              = 3600
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  ok_actions          = [aws_sns_topic.alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "canary_missing" {
+  alarm_name          = "${local.name}-canary-missing"
+  alarm_description   = "No passed canary round for 2 h (L11 §5)."
+  namespace           = "AFR/Staging"
+  metric_name         = "canary_ok"
+  statistic           = "Sum"
+  period              = 3600
+  evaluation_periods  = 2
+  threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "breaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  ok_actions          = [aws_sns_topic.alerts.arn]
 }
 
 output "anchor_key_id" {

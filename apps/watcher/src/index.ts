@@ -3,6 +3,7 @@
 export const PACKAGE_NAME = "@afr/watcher";
 export * from "./alerts.js";
 export * from "./auditor.js";
+export * from "./canary.js";
 export * from "./db.js";
 export * from "./follower.js";
 export * from "./matcher.js";
