@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| App | `apps/dashboard`: Next.js 15 App Router, React 19, TypeScript, Tailwind, shadcn/ui, TanStack Query + Table + Virtual, wagmi + viem + SIWE, Web Workers, IndexedDB (`idb`), DuckDB-WASM (v1 search), Recharts |
+| App | `apps/dashboard`: static SPA (ADR-026). Vite, React 19, TypeScript, Tailwind, TanStack Query (+ Table + Virtual when the timeline needs them), viem + SIWE with the injected wallet, Web Workers, IndexedDB (`idb`), DuckDB-WASM (v1 search), Recharts. Served from the API's origin (the `__Host-` session cookie is `SameSite=Strict`) |
 | Depends on | `@afr/client` (API), `@afr/store` (browser Arkiv reader), `@afr/crypto`, `@afr/verifier`, `@afr/core` |
 | Requirements | DSH-01…DSH-12, PRV-07, C18–C21, C27 |
 | Phase | P4 (agents, timeline, replay, alerts, verify badge, key onboarding), P6 (search, grants, packs, policy editor, approvals, public pages) |
@@ -179,16 +179,18 @@ Pending requests with a summary (decrypted locally if the summary is encrypted t
 
 ```
 apps/dashboard/
-├─ app/(auth)/login/page.tsx
-├─ app/o/[org]/agents/page.tsx, new/page.tsx, [id]/{page,timeline,replay/[seq],search,evidence,access,policy,settings}/page.tsx
-├─ app/o/[org]/{alerts,approvals,settings}/page.tsx
-├─ app/a/[agentId]/page.tsx
-├─ app/keys/page.tsx
-├─ components/{timeline,replay,alerts,badge,keys,json-tree,tx-decoder,policy-editor}/…
-├─ workers/{decrypt.worker.ts, verify.worker.ts, pack.worker.ts}
-├─ lib/{api.ts, arkiv.ts, cache.ts (idb), keys.ts, duck.ts, siwe.ts}
+├─ index.html, vite.config.ts      (CSP meta injected at build)
+├─ src/main.tsx, app.tsx           (QueryClient, 401 → /login, shell + org switcher)
+├─ src/pages/{login,agents,agent}.tsx, later timeline, replay, alerts, keys, …
+├─ src/components/{link,ui}.tsx, later timeline, replay, alerts, badge, keys, json-tree, tx-decoder, policy-editor
+├─ src/workers/{decrypt.worker.ts, verify.worker.ts, pack.worker.ts}
+├─ src/lib/{api.ts, route.ts, format.ts, siwe.ts}, later arkiv.ts, cache.ts (idb), keys.ts, duck.ts
+├─ test/*.test.ts (Vitest, pure lib code)
 └─ e2e/*.spec.ts (Playwright)
 ```
+
+Routes (§1) are parsed in `src/lib/route.ts` on the History API.
+- **Local dev:** `pnpm --filter @afr/dashboard dev` proxies `/v1` to the API, set with `AFR_API_URL` (default `http://127.0.0.1:8080`), so the cookies stay same-origin. The API needs `AFR_SIWE_DOMAIN=localhost:5173`.
 
 ## 8. Tests and acceptance criteria
 
@@ -204,7 +206,7 @@ apps/dashboard/
 
 ## 9. Vibecoding prompts
 
-1. "Scaffold `apps/dashboard` (Next.js 15 App Router, Tailwind, shadcn/ui, TanStack Query, wagmi + SIWE login against `@afr/client`). Build the agent list and overview pages with mock data from the API client."
+1. "Scaffold `apps/dashboard` (Vite + React SPA per ADR-026, Tailwind, TanStack Query, viem SIWE login against `@afr/client`). Build the agent list and overview pages from the API client."
 2. "Implement key onboarding (§2) using `@afr/crypto` reader keys, the `.afrkey` backup and ReaderKey EIP-712 signing with wagmi."
 3. "Implement the decrypt worker and IndexedDB cache (§3). Frames from Arkiv via `@afr/store` browser reader with API-mirror fallback. Include header-hash checks."
 4. "Build the virtualised timeline (§4.3) with grouping of call/result and sign/broadcast, gap separators, and interleaved watcher alerts."

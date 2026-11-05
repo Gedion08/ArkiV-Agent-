@@ -27,7 +27,7 @@
 
 | ID | Task | Ref | Done when |
 |---|---|---|---|
-| P4-08 | Scaffold dashboard, SIWE login, org switcher, agent list/overview (API data) | L9 §1, §4.1–4.2 | |
+| P4-08 | Scaffold dashboard, SIWE login, org switcher, agent list/overview (API data) | L9 §1, §4.1–4.2 | ✓ (Vite SPA, ADR-026; not yet hosted) |
 | P4-09 | Reader key onboarding + backup + import | L9 §2 | D7 |
 | P4-10 | Decrypt worker + IndexedDB cache + frame fetch (Arkiv, mirror fallback) | L9 §3 | K5 |
 | P4-11 | Timeline with grouping, gaps, interleaved alerts | L9 §4.3 | D2 |

@@ -17,6 +17,11 @@
       "!packages/client/src/schema.ts"
     ]
   },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
   "formatter": {
     "indentStyle": "space",
     "indentWidth": 2,

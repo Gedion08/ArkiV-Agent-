@@ -169,3 +169,9 @@ Format: **Context → Decision → Consequences → Status**. ADRs are append-on
 - **Decision:** L1 (record format and crypto), L4 §3–§6 (encryption byte formats) and L7 (verification rules, findings, exit codes, `afr-proof/1`) are frozen as **format v1-rc** as of 2026-11-05. Any change to them needs its own ADR and regenerated test vectors. Committed vectors stay immutable (CLAUDE.md rule 1).
 - **Consequences:** Third-party verifiers can be built against these docs now. v1 GA turns v1-rc into v1, after the external crypto review (ADR-009). A change found before then goes through an ADR, and a breaking one bumps `v`.
 
+### ADR-026 — Dashboard as a static SPA
+
+- **Context:** The dashboard was planned as Next.js with shadcn/ui and wagmi. Under ADR-020, though, everything that matters runs in the browser: decryption, verification and search. Server rendering would only add a Node service and a larger dependency surface to a page that handles reader keys.
+- **Decision:** `apps/dashboard` is a Vite + React 19 single-page app. Tailwind provides styling and TanStack Query handles API data. SIWE uses viem's `createSiweMessage` with the injected EIP-1193 wallet. Routing runs on the History API until the routes justify a router. It is served as static files, **from the API's origin**: the session cookie is `__Host-` and `SameSite=Strict` (L8 §2). The CSP is a `<meta>` tag in the build and is repeated as a header by the host, along with `frame-ancestors 'none'`.
+- **Consequences:** There is no dashboard ECS service: the assets go to S3 behind CloudFront, on the same hostname as the API. The dashboard has fewer dependencies to pin and audit. Wallets other than the injected one (WalletConnect, smart-account onboarding) need wagmi or a connector when they're wanted. shadcn/ui components can still be copied in later, since they're plain source.
+

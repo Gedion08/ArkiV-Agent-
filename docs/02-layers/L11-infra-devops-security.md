@@ -36,9 +36,8 @@ Arkiv locally: use `MemoryStore`/`PostgresStore` by default. If the Arkiv SDK's 
 ```mermaid
 flowchart TB
   CF["CloudFront + WAF"] --> ALB["ALB (HTTPS)"]
-  CF --> S3D["S3 dashboard static assets"]
+  CF --> S3D["S3 dashboard static assets (SPA, ADR-026; same hostname as the API)"]
   ALB --> API["ECS: api (2+ tasks)"]
-  ALB --> DASH["ECS: dashboard (Next.js SSR, 2 tasks)"]
   API --> RDS[("RDS Postgres 16 Multi-AZ")]
   WAT["ECS: watcher (1 per chain, leader-locked)"] --> RDS
   ANC["ECS: anchor (1, leader-locked)"] --> RDS

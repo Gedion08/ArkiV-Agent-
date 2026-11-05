@@ -61,7 +61,7 @@ module.exports = {
     enhancedResolveOptions: {
       exportsFields: ["exports"],
       conditionNames: ["@afr/source", "import", "types", "default"],
-      extensions: [".ts", ".js"],
+      extensions: [".ts", ".tsx", ".js"],
     },
   },
 };

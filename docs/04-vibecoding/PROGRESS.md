@@ -10,13 +10,41 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
 | P3 Anchor + verify | **done, with exceptions** (owner's call, 2026-11-05): all 13 tickets done. P3-12 ✓ A4 met: the staging KMS key `0xd9b2…b27d` anchored epoch 4 (tx `0xfe0e5b81…96bc`). Exit demo ✓: structural, full (`…:10593`), mirror corruption FAIL, anchors on BaseScan | Exceptions: P3-13's 3 green nights (GitHub Actions locked by a billing issue; secrets set); npm provenance (needs Actions + an `@afr` org; the CLI ships as GitHub Release tarballs for `npx`); the DoD third-person check |
-| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓, P4-03 ✓, P4-04 ✓ (W1, W2, W4 on anvil), P4-05 ✓ (W5), P4-06 ✓ (W10, P4), P4-07 ✓ (W9 on anvil) | Watcher on staging since 2026-11-05 (ECS `afr-staging-watcher`, Base Sepolia); P4-05/06 deployed (`acb1bcf`); canary deployed (`75b0caa`, ECS `afr-staging-canary`) and passing: first end-to-end `UNLOGGED_TX` on staging 2026-11-05 |
+| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓, P4-03 ✓, P4-04 ✓ (W1, W2, W4 on anvil), P4-05 ✓ (W5), P4-06 ✓ (W10, P4), P4-07 ✓ (W9 on anvil), P4-08 ✓ | Watcher on staging since 2026-11-05 (ECS `afr-staging-watcher`, Base Sepolia); P4-05/06 deployed (`acb1bcf`); canary deployed (`75b0caa`, ECS `afr-staging-canary`) and passing: first end-to-end `UNLOGGED_TX` on staging 2026-11-05 |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
 | P7 Scale & enterprise | not started | |
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-05: P4-08: dashboard scaffold, SIWE login, org switcher, agent list and overview
+- **Stack (ADR-026):** a static SPA with Vite 8.3.5, React 19.3.1, Tailwind 4.3.3 and TanStack Query 5.104.5, plus viem's SIWE helpers with the injected wallet.
+  - **Not adopted:** Next.js, shadcn/ui, wagmi and a router.
+  - **Pins:** exact, each version at least 2 weeks old.
+  - **Docs aligned:** ARCHITECTURE, L9 and L11 updated to match (no dashboard ECS service).
+- **App (`apps/dashboard`):**
+  - **`/login`:** nonce → EIP-4361 message (`lib/siwe.ts`, 10 min expiry) → `POST /v1/auth/siwe`. Errors show codes only.
+  - **Session handling:** a 401 anywhere redirects to `/login`. The header shows the wallet, an org switcher (`GET /v1/orgs`) and sign out.
+  - **`/`:** goes to the first org's agents, or offers to create an org.
+  - **`/o/{org}/agents`:** L9 §4.1 without last anchor or the verify badge (P4-14). Status counts as "silent" when the agent has an open `RECORDER_SILENT`. It has status and critical-alert filters.
+  - **`/o/{org}/agents/{id}`:** L9 §4.2 from API data: status, open alerts, store lag, pending batches, last heartbeat, a lanes table and recent alerts. "Verify independently" copies `fr verify agent <id>`.
+  - **CSP:** a `<meta>` tag injected in the build.
+- **Shortcuts:**
+  - Lanes are fetched per agent, and open alerts come from one page of 500.
+  - Agent IDs are shortened like hashes.
+  - Only the injected wallet is supported.
+- **Repo:** the placeholder `src/index.ts` and its smoke test are removed (nothing imported the dashboard). depcruise resolves `.tsx`, and Biome parses Tailwind directives.
+- **Tests:**
+  - `apps/dashboard/test/lib.test.ts` has 8 tests: routes, the CSRF cookie, the SIWE round trip, formatting and status, and login error text.
+  - lint, depcruise, typecheck, the Vite build and tests pass.
+- **Checked by hand** against a local API on a scratch schema:
+  - The list, filters, overview, org switch, empty state and sign out (CSRF) all work in the browser pane.
+  - A scripted SIWE login with the dashboard's message gets 200 and both cookies, and a nonce replay gets 401 `SIWE_NONCE`.
+- **Not verified:**
+  - Wallet signing in a real browser extension (the pane has none).
+  - Hosting. The SPA must be served from the API's origin. Staging has no S3/CloudFront for it yet, so it isn't deployed.
+- Next: P4-09 (reader key onboarding).
 
 ### 2026-11-05: P4-07: synthetic canary
 - **Canary (L6 W9, L11 §5):** `apps/watcher/src/canary.ts` and its entry point `canary-main.ts`. It runs on the watcher image as `node dist/canary-main.js`.

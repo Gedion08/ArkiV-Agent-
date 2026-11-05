@@ -1,0 +1,61 @@
+// API access (L9 §3, L8 §2): same-origin, session cookie, CSRF header on mutations via @afr/client.
+import { createAfrClient, type paths } from "@afr/client";
+
+type Json<O> = O extends { responses: { 200: { content: { "application/json": infer J } } } }
+  ? J
+  : never;
+export type Agent = Json<paths["/v1/agents/{id}"]["get"]>["agent"];
+export type Lane = Json<paths["/v1/agents/{id}/lanes"]["get"]>["lanes"][number];
+export type Alert = Json<paths["/v1/orgs/{org}/alerts"]["get"]>["alerts"][number];
+export type Org = Json<paths["/v1/orgs"]["get"]>["orgs"][number];
+
+const CSRF_COOKIE = "__Host-afr-csrf";
+
+/** The CSRF token the SIWE login set (JS-readable by design, L8 §2). */
+export function csrfFrom(cookie: string): string | undefined {
+  for (const c of cookie.split(/;\s*/))
+    if (c.startsWith(`${CSRF_COOKIE}=`)) return c.slice(CSRF_COOKIE.length + 1);
+  return undefined;
+}
+
+export function api() {
+  const csrf = csrfFrom(document.cookie);
+  return createAfrClient(location.origin, csrf ? { csrf } : {});
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  constructor(status: number, code: string) {
+    super(code);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/** Unwraps an openapi-fetch result: non-2xx → ApiError carrying the API's `{ code }`. */
+export async function ok<T>(
+  p: Promise<{ data?: T; error?: unknown; response: Response }>,
+): Promise<T> {
+  const { data, error, response } = await p;
+  if (response.ok && data !== undefined) return data;
+  const code = (error as { code?: unknown } | undefined)?.code;
+  throw new ApiError(response.status, typeof code === "string" ? code : `HTTP_${response.status}`);
+}
+
+// Queries shared by the list and the overview, so they reuse one cache entry.
+export const lanesQuery = (id: string) => ({
+  queryKey: ["lanes", id],
+  queryFn: () => ok(api().GET("/v1/agents/{id}/lanes", { params: { path: { id } } })),
+});
+// shortcut: one page of open alerts (500) per org; move per-agent counts into the agent list endpoint
+// once orgs outgrow it
+export const openAlertsQuery = (org: string) => ({
+  queryKey: ["alerts", org, "open"],
+  queryFn: () =>
+    ok(
+      api().GET("/v1/orgs/{org}/alerts", {
+        params: { path: { org }, query: { status: "open", limit: 500 } },
+      }),
+    ),
+});
