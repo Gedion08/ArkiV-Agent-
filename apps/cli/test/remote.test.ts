@@ -1,6 +1,6 @@
 // P3-10 fr verify agent | prove | keys reader (L7 §5) over the verifier's in-memory fixtures. V6: an RPC
 // outage (identity or anchor chain) exits 3, never 2.
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { batchDigest, recoverRecordSigner, verifyBatchProof } from "@afr/core";
@@ -273,5 +273,54 @@ describe("fr agent update-registration", () => {
       (await run(["agent", "update-registration", local, "--writer", WRITER, "--out", "x"], d))
         .code,
     ).toBe(3);
+  });
+});
+
+describe("fr mirror pull + verify --mirror (P3 exit demo)", () => {
+  const offline = (a: Agent): NetDeps => {
+    const { store: _arkiv, ...rest } = deps(a);
+    return rest;
+  };
+
+  test("a pulled mirror verifies like Arkiv; one corrupted frame → FAIL at its seq", async () => {
+    const a = await agent();
+    const file = join(tmp(), "m.jsonl");
+    const pulled = await run(["mirror", "pull", a.agentId, "--out", file], deps(a));
+    expect(pulled.code).toBe(0);
+    expect((await run(["mirror", "pull", a.agentId, "--out", file], deps(a))).code).toBe(3);
+    const ok = await run(["verify", "agent", a.agentId, "--mirror", file], offline(a));
+    expect(ok.out).toContain("RESULT: PASS");
+    expect(ok.code).toBe(0);
+
+    // flip one byte in the middle of the second batch's frame (seq 3…5)
+    const lines = readFileSync(file, "utf8").trim().split("\n");
+    const i = lines.findIndex((l) => {
+      const e = JSON.parse(l);
+      return e.schema === "afr.batch.v1" && e.attrs.seq_from === "3";
+    });
+    const e = JSON.parse(lines[i] as string);
+    const mid = 2 + 2 * Math.floor((e.payload.length - 2) / 4);
+    const b = (Number.parseInt(e.payload.slice(mid, mid + 2), 16) ^ 1)
+      .toString(16)
+      .padStart(2, "0");
+    e.payload = e.payload.slice(0, mid) + b + e.payload.slice(mid + 2);
+    lines[i] = JSON.stringify(e);
+    const bad = join(tmp(), "bad.jsonl");
+    writeFileSync(bad, `${lines.join("\n")}\n`);
+    const r = await run(["verify", "agent", a.agentId, "--mirror", bad, "--json"], offline(a));
+    expect(r.code).toBe(2);
+    // the flipped byte sits in record 4's signature: FAIL names that record, nothing else
+    expect(JSON.parse(r.out).findings).toEqual([
+      expect.objectContaining({ code: "RECORD_SIG", severity: "fail", lane: 0, seq: "4" }),
+    ]);
+  });
+
+  test("a malformed mirror is a usage error, not a FAIL", async () => {
+    const a = await agent();
+    const file = join(tmp(), "m.jsonl");
+    writeFileSync(file, "{not json\n");
+    const r = await run(["verify", "agent", a.agentId, "--mirror", file], offline(a));
+    expect(r.code).toBe(3);
+    expect(r.err).toContain("mirror line 1");
   });
 });

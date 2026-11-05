@@ -19,5 +19,9 @@ FROM ${NODE}
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=1000:1000 /out .
+# Amazon RDS CAs (truststore.pki.rds.amazonaws.com/global/global-bundle.pem): Postgres URLs use
+# sslmode=verify-full, and Node's bundled roots don't include them
+COPY infra/docker/rds-global-bundle.pem /etc/ssl/rds-global-bundle.pem
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/rds-global-bundle.pem
 USER 1000
 CMD ["node", "dist/main.js"]

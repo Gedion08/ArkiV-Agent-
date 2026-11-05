@@ -15,8 +15,12 @@
 // AFR_OPERATOR_KEY) and verifies against its on-chain registration: this seeds the README demo agent.
 // Its journal is kept in .afr-demo/agents/<agentKey>, and a second run for the same agent is refused:
 // a fresh journal would restart the lane at seq 0, an equivocation.
+//
+// --api https://… (with --agent, recorder key in AFR_API_KEY) sends checkpoints to a deployed API instead
+// of the in-process one, and waits for that deployment's anchor service (P3-12 A4: staging's KMS key)
+// to anchor them: no AFR_ANCHOR_KEY, no local anchor service. The report names the anchor tx's sender.
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,7 +50,11 @@ import {
   isLocalAgentId,
   parseAgentId,
 } from "../../../packages/core/src/index.js";
-import { generateReaderKey, sealKeygrant } from "../../../packages/crypto/src/index.js";
+import {
+  generateReaderKey,
+  importReaderBackup,
+  sealKeygrant,
+} from "../../../packages/crypto/src/index.js";
 import {
   AFR_SERVICE_NAME,
   AFR_SERVICE_VERSION,
@@ -66,7 +74,7 @@ const SPEND_CAP_WEI = 50_000_000_000_000_000n; // 0.05 tGLM
 const ANCHOR_DEADLINE_MS = 10 * 60_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function readEnv() {
+function readEnv(remoteAnchor: boolean) {
   try {
     process.loadEnvFile(join(ROOT, ".env"));
   } catch {} // CI passes env directly
@@ -75,7 +83,7 @@ function readEnv() {
     pg: e.AFR_PG_URL,
     accessKey: e.ARKIV_ACCESS_KEY,
     writerKey: e.AFR_ARKIV_WRITER_KEY,
-    anchorKey: e.AFR_ANCHOR_KEY,
+    anchorKey: remoteAnchor ? "unused" : e.AFR_ANCHOR_KEY,
     rpc: e.AFR_ANCHOR_RPC_URL || e.BASE_SEPOLIA_RPC_URL,
   };
   const names = {
@@ -95,16 +103,25 @@ async function main(): Promise<number> {
       records: { type: "string", default: "4" },
       report: { type: "string" },
       agent: { type: "string" },
+      "reader-key": { type: "string" },
+      api: { type: "string" },
     },
   });
   const usage = (why: string) => {
     process.stdout.write(
-      `${why}\nusage: testnet-e2e.ts [--records 1..99] [--report out.json] [--agent eip155:84532:…]\n`,
+      `${why}\nusage: testnet-e2e.ts [--records 1..99] [--report out.json] [--agent eip155:84532:…] [--reader-key FILE.afrkey] [--api https://…]\n`,
     );
     return 2;
   };
   if (!/^[1-9]\d?$/.test(v.records ?? "")) return usage("bad --records");
-  const env = readEnv();
+  const remote = v.api;
+  if (remote !== undefined) {
+    if (!/^https:\/\/[^\s/]+\/?$/.test(remote)) return usage("--api must be an https origin");
+    if (!v.agent) return usage("--api needs --agent");
+    if (!process.env.AFR_API_KEY)
+      return usage("--api needs AFR_API_KEY (the agent's recorder key)");
+  }
+  const env = readEnv(remote !== undefined);
   if (Array.isArray(env)) return usage(`missing env: ${env.join(", ")}`);
   let real: { id: string; operatorKey: Hex; dir: string } | undefined;
   if (v.agent) {
@@ -121,6 +138,18 @@ async function main(): Promise<number> {
     if (existsSync(dir))
       return usage(`${v.agent} was already recorded (${dir}): refusing a second lane-0 history`);
     real = { id: v.agent, operatorKey: operatorKey as Hex, dir };
+  }
+  // a kept reader (fr keys reader new; passphrase in AFR_READER_PASSPHRASE) so full mode can be rerun
+  let kept: Awaited<ReturnType<typeof importReaderBackup>> | undefined;
+  if (v["reader-key"]) {
+    try {
+      kept = await importReaderBackup(
+        JSON.parse(readFileSync(v["reader-key"], "utf8")),
+        process.env.AFR_READER_PASSPHRASE ?? "",
+      );
+    } catch {
+      return usage("--reader-key: unreadable file or wrong AFR_READER_PASSPHRASE");
+    }
   }
   const started = Date.now();
   const report: Record<string, unknown> = { scenario: "afr-testnet-e2e/1", ok: false };
@@ -139,17 +168,19 @@ async function main(): Promise<number> {
     chain: baseSepolia,
     transport: http(env.rpc, { retryCount: 3 }),
   }) as PublicClient;
-  const signer = privateKeyToAccount(env.anchorKey as Hex) as AnchorSigner;
-  const [allowed, balance] = await Promise.all([
-    publicClient.readContract({
-      address: contract,
-      abi: RECORDER_ANCHOR_ABI,
-      functionName: "isRecorder",
-      args: [signer.address],
-    }),
-    publicClient.getBalance({ address: signer.address }),
-  ]);
-  report.anchor_signer = signer.address.toLowerCase();
+  const signer = remote ? undefined : (privateKeyToAccount(env.anchorKey as Hex) as AnchorSigner);
+  const [allowed, balance] = signer
+    ? await Promise.all([
+        publicClient.readContract({
+          address: contract,
+          abi: RECORDER_ANCHOR_ABI,
+          functionName: "isRecorder",
+          args: [signer.address],
+        }),
+        publicClient.getBalance({ address: signer.address }),
+      ])
+    : [true, 1n]; // the deployment checks its own key at startup (NOT_RECORDER)
+  if (signer) report.anchor_signer = signer.address.toLowerCase();
   if (!allowed || balance === 0n) {
     report.error = allowed ? "ANCHOR_KEY_UNFUNDED" : "NOT_RECORDER";
     return finish(false);
@@ -167,32 +198,38 @@ async function main(): Promise<number> {
   let ok = false;
   try {
     await migrate(pool);
-    const app = await buildServer({
-      pool,
-      siweDomain: "e2e.afr.test",
-      keys: localKeyWrapper(randomBytes(32)),
-    });
-    const apiUrl = await app.listen({ port: 0, host: "127.0.0.1" });
+    const app = remote
+      ? undefined
+      : await buildServer({
+          pool,
+          siweDomain: "e2e.afr.test",
+          keys: localKeyWrapper(randomBytes(32)),
+        });
+    const apiUrl = remote ?? (await app?.listen({ port: 0, host: "127.0.0.1" }));
 
     const agentId = real?.id ?? `local:${randomUUID()}`;
     const operatorKey = real?.operatorKey ?? generatePrivateKey();
     if (real) mkdirSync(real.dir, { recursive: true, mode: 0o700 }); // from here on, a rerun is refused
-    const reader = await generateReaderKey();
+    const reader = kept ?? (await generateReaderKey());
     report.agent_id = agentId;
-    // the org, agent and recorder key the dashboard would create
-    const org = (await pool.query("INSERT INTO orgs (name) VALUES ('e2e') RETURNING id")).rows[0]
-      .id;
-    const agent = (
+    // the org, agent and recorder key the dashboard would create (a deployed API has its own)
+    let apiKey = process.env.AFR_API_KEY as string;
+    if (!remote) {
+      const org = (await pool.query("INSERT INTO orgs (name) VALUES ('e2e') RETURNING id")).rows[0]
+        .id;
+      const agent = (
+        await pool.query(
+          "INSERT INTO agents (org_id, agent_id, agent_key, name) VALUES ($1, $2, $3, 'e2e') RETURNING id",
+          [org, agentId, Buffer.from(agentKey(agentId).slice(2), "hex")],
+        )
+      ).rows[0].id;
+      const key = newRecorderKey();
       await pool.query(
-        "INSERT INTO agents (org_id, agent_id, agent_key, name) VALUES ($1, $2, $3, 'e2e') RETURNING id",
-        [org, agentId, Buffer.from(agentKey(agentId).slice(2), "hex")],
-      )
-    ).rows[0].id;
-    const key = newRecorderKey();
-    await pool.query(
-      "INSERT INTO recorder_keys (id, org_id, agent_id, secret_hash, lanes) VALUES ($1, $2, $3, $4, '{0}')",
-      [key.id, org, agent, key.secretHash],
-    );
+        "INSERT INTO recorder_keys (id, org_id, agent_id, secret_hash, lanes) VALUES ($1, $2, $3, $4, '{0}')",
+        [key.id, org, agent, key.secretHash],
+      );
+      apiKey = key.token;
+    }
 
     // one store (one WriterQueue, one nonce sequence) for both the recorder's and the anchor service's writes
     const store = createArkivStore({
@@ -211,11 +248,11 @@ async function main(): Promise<number> {
           delegation: { mode: "operator_env" },
           encryption: { readers: [reader.pub] },
           batch: { heartbeat: false }, // nothing after the anchored checkpoint, so verify sees no tail
-          api: { url: apiUrl },
+          api: { url: apiUrl as string },
         },
         {},
       ),
-      env: { AFR_OPERATOR_KEY: operatorKey, AFR_API_KEY: key.token },
+      env: { AFR_OPERATOR_KEY: operatorKey, AFR_API_KEY: apiKey },
       autoRotate: false,
       upload: { store, sealKeygrant, writers: [writer], tickMs: 5_000 },
     });
@@ -235,23 +272,41 @@ async function main(): Promise<number> {
       await rec.flush(); // uploads, then drains the outbox: the checkpoint notices are in Postgres
       report.batches = rec.journal.batchCounts();
 
-      const svc = new AnchorService({
-        db: new PgAnchorDb(pool),
-        store,
-        chain: new AnchorChain({ publicClient, chain: baseSepolia, contract, signer }),
-        cadenceMs: 0,
-      });
-      const latest = async () =>
-        (
-          await pool.query<{ seq_to: string; status: string; anchor_tx: Buffer | null }>(
-            "SELECT seq_to::text, status, anchor_tx FROM checkpoints ORDER BY seq_to DESC LIMIT 1",
-          )
-        ).rows[0];
+      const svc = signer
+        ? new AnchorService({
+            db: new PgAnchorDb(pool),
+            store,
+            chain: new AnchorChain({ publicClient, chain: baseSepolia, contract, signer }),
+            cadenceMs: 0,
+          })
+        : undefined;
+      type Last = { seq_to: string; status: string; anchor_tx: Buffer | null } | undefined;
+      const latest = async (): Promise<Last> => {
+        if (svc)
+          return (
+            await pool.query<NonNullable<Last>>(
+              "SELECT seq_to::text, status, anchor_tx FROM checkpoints ORDER BY seq_to DESC LIMIT 1",
+            )
+          ).rows[0];
+        // the deployment's anchor service writes an afr.checkpoint.v1 entity once a checkpoint is anchored
+        let best: NonNullable<Last> | undefined;
+        for await (const c of store.query({
+          schema: "afr.checkpoint.v1",
+          where: { agent_key: { eq: agentKey(agentId) }, lane: { eq: 0n } },
+        }))
+          if (!best || c.attrs.seq_to > BigInt(best.seq_to))
+            best = {
+              seq_to: c.attrs.seq_to.toString(),
+              status: "anchored",
+              anchor_tx: Buffer.from(c.attrs.anchor_tx.slice(2), "hex"),
+            };
+        return best ?? { seq_to: "", status: "pending", anchor_tx: null };
+      };
       let last = await latest();
       for (const deadline = Date.now() + ANCHOR_DEADLINE_MS; ; ) {
         if (!last || last.status === "anchored" || last.status === "rejected") break;
         if (Date.now() > deadline) break;
-        await svc.tick();
+        await svc?.tick();
         last = await latest();
         if (last?.status !== "anchored") await sleep(10_000);
       }
@@ -262,6 +317,13 @@ async function main(): Promise<number> {
             ...(last.anchor_tx ? { anchor_tx: `0x${last.anchor_tx.toString("hex")}` } : {}),
           }
         : null;
+      if (remote && last?.anchor_tx) {
+        // A4: who signed the anchor tx (staging: the KMS-derived address)
+        const tx = await publicClient.getTransaction({
+          hash: `0x${last.anchor_tx.toString("hex")}`,
+        });
+        report.anchor_signer = tx.from.toLowerCase();
+      }
 
       // what `fr agent update-registration` would publish for this agent (a local: agent has no registry)
       const anchor = ANCHOR_CONTRACTS[CHAINS.BASE_SEPOLIA]?.at(
@@ -330,7 +392,7 @@ async function main(): Promise<number> {
     } finally {
       reader.priv.fill(0);
       await rec.close();
-      await app.close();
+      await app?.close();
     }
     return finish(ok);
   } finally {

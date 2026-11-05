@@ -9,7 +9,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | in progress: P3-01 ✓, P3-02 ✓, P3-03 ✓ (Base Sepolia `0x976cf1d6…d341`, verified), P3-04 ✓, P3-05 ✓ (anvil + local PG), P3-06 ✓, P3-07 ✓, P3-08 ✓, P3-09 ✓, P3-10 ✓, P3-11 ✓ (demo agent `eip155:84532:0x8004a818…bd9e:10588` carries the `afr` service) , P3-12 ✓ in code (KMS signer verified on LocalStack + anvil; Terraform not yet planned against AWS) | P3-13 ✓ locally (`testnet-e2e.yml` scenario PASS on Rabdi + Base Sepolia); 3 green nights pending a pushed repo + secrets. Staging apply + KMS key allowlisting need an operator with AWS access. The anchor-service key isn't generated or allowlisted on Base Sepolia yet. |
+| P3 Anchor + verify | all 13 tickets done. P3-12 ✓ A4 met: staging applied in eu-north-1, and the KMS key `0xd9b2…b27d` anchored epoch 4 (tx `0xfe0e5b81…96bc`). Exit demo ✓: structural + full (`…:10593` with a kept reader key) + mirror corruption FAIL | Not met: P3-13's 3 green nights, because GitHub Actions is locked by a billing issue on the account (secrets are set). npm provenance waits on Actions + an `@afr` org: the CLI ships as GitHub Release tarballs for `npx`. DoD third-person check pending |
 | P4 Watcher + dashboard | not started | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
@@ -17,6 +17,31 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-05: P3 gaps closed: staging on AWS (A4), --mirror, full-mode demo agent, GitHub push, release tarballs
+- **GitHub:** pushed to `Gedion08/ArkiV-Agent-` (public; branch renamed to `main`). A scan of the full history found only public RPC hosts and addresses.
+  - The nightly secrets are set: `ARKIV_ACCESS_KEY`, `AFR_ARKIV_WRITER_KEY`, `AFR_ANCHOR_KEY` (= writer wallet) and `BASE_SEPOLIA_RPC_URL`.
+  - **Blocked:** every Actions job fails to start ("account is locked due to a billing issue"), so P3-13 nights and `release-cli.yml` can't run until the owner fixes billing.
+- **`fr verify agent --mirror FILE`** plus **`fr mirror pull <agentId> --out FILE`** (`apps/cli/src/mirror.ts`): an agent's entities as JSON lines, loaded into a MemoryStore. The same checks run with no access key. A malformed mirror is exit 3, never a FAIL.
+  - Live on `…:10588`: the clean mirror gives `PASS (structural)`. One byte flipped in a batch payload gives `FAIL`, exit 2, `FRAME_DECODE lane 0 seq 0`.
+  - Unit test: the flipped byte in record 4's signature gives exactly `RECORD_SIG seq 4`.
+- **Staging (P3-12 A4)**, applied by hand in `eu-north-1`:
+  - The org SCP denies every other region; the state bucket is `afr-tfstate-staging-668857951374`.
+  - The account is on the AWS **Free plan**, so staging-only overrides apply: db.t4g.micro, 1-day backups, no Performance Insights, interface endpoints in 1 AZ, 1 API task, X86_64 tasks (images built on amd64 without buildx). Module defaults are unchanged.
+  - Fixed: the rds module's `for_each` over unknown SG ids made any first apply fail; it now uses `count`.
+  - TLS: the services verify RDS with `sslmode=verify-full` against the bundled Amazon RDS CAs (`infra/docker/rds-global-bundle.pem`, via `NODE_EXTRA_CA_CERTS`). The ALB uses a self-signed cert imported into ACM for its DNS name, since there's no domain yet.
+  - The KMS anchor address `0xD9B2d68d302cCc16eD8422AcE8b3b16351A3B27D` was derived from the public key, allowlisted by the admin (tx `0x372710fe…68fa`) and funded with 0.00005 ETH.
+  - `tools/e2e/scripts/staging-provision.ts` creates the org, agent and recorder key through the API (SIWE with a throwaway wallet). `testnet-e2e.ts --api https://… --agent …` records through the deployed API and waits for its anchor service.
+  - Result: epoch 4 anchored, tx `0xfe0e5b81…96bc`, `from` = the KMS address.
+  - The images in ECR (`0355ced-ca`) are `0355ced` with the CA layer added on top. The Dockerfile now does the same, and the next build from source picks it up.
+- **Second demo agent** `eip155:84532:0x8004a818bfb912233c491871b3d84c89a494bd9e:10593`:
+  - registered by the operator (tx `0xd92cf912…5088`), with its `afr` registration set by `setAgentURI`;
+  - seeded through staging with a kept reader key (`.afr-demo/demo-reader.afrkey`, passphrase in `.afr-demo/demo-reader.pass`; both git-ignored, 0600);
+  - `fr verify agent …:10593 --reader-key` from a clean env: `PASS (full)`.
+  - `testnet-e2e.ts --reader-key FILE` grants a kept reader instead of a throwaway one.
+- **npm without an org:** `tools/scripts/pack-github-release.mjs` packs the 8 `@afr/*` tarballs with sibling-URL deps plus `SHA256SUMS` for one GitHub Release, so `npx <release url>/afr-cli-0.1.0.tgz` works. There's no provenance on this path.
+- **Found, not fixed (public API):** `resolveAgent` rejects an empty `tokenURI` (URI_UNSUPPORTED), so `fr agent update-registration` can't write a freshly `register()`ed agent's first file. 10593's file was built from 10588's with the same `buildRegistrationWithAfr`/`encodeSetAgentURI`. The fix (treat `""` as an empty registration) changes `@afr/identity`'s behaviour and needs a decision.
+- **Running cost:** staging bills the AWS account, roughly $100/month (NAT, endpoints, ALB, RDS, Fargate). Tear-down: `terraform destroy` after disabling RDS `deletion_protection`.
 
 ### 2026-11-05: P3 DoD: verifier README, seeded demo agent, npm release workflow, format v1-rc
 - `tools/e2e/scripts/testnet-e2e.ts --agent eip155:84532:…` records for a real ERC-8004 agent:

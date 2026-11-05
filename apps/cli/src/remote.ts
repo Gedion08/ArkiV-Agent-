@@ -45,6 +45,7 @@ import {
 import { createPublicClient, type Hex, http, type PublicClient } from "viem";
 import { generatePrivateKey } from "viem/accounts";
 import { base, baseSepolia } from "viem/chains";
+import { loadMirror, MirrorError, pullMirror } from "./mirror.js";
 
 export interface NetDeps {
   store?: EvidenceStore;
@@ -186,6 +187,17 @@ export interface VerifyFlags extends NetFlags {
   strict?: boolean;
   "no-writer-filter"?: boolean;
   writer?: string[];
+  mirror?: string;
+}
+
+/** --mirror FILE instead of Arkiv: no access key needed, same checks. */
+function mirrorOrArkiv(v: { mirror?: string }, env: NodeJS.ProcessEnv, deps: NetDeps) {
+  if (!v.mirror) return deps.store ?? arkivStore(env);
+  try {
+    return loadMirror(v.mirror);
+  } catch (e) {
+    throw new UsageError(e instanceof MirrorError ? e.message : `unreadable mirror ${v.mirror}`);
+  }
 }
 
 export async function verifyCommand(
@@ -203,7 +215,7 @@ export async function verifyCommand(
   let report: VerifyReport;
   try {
     report = await verifyAgent(id, {
-      store: deps.store ?? arkivStore(env),
+      store: mirrorOrArkiv(v, env, deps),
       identity: identityOf(id, v, deps),
       anchors: anchorsOf(v, deps),
       ...(lane !== undefined ? { lane } : {}),
@@ -472,6 +484,23 @@ export async function updateRegistrationCommand(
       },
     }),
   );
+  return 0;
+}
+
+/** fr mirror pull <agentId> --out FILE: the agent's entities from Arkiv, for `verify --mirror`. */
+export async function mirrorPullCommand(
+  agentId: string | undefined,
+  v: { out?: string },
+  env: NodeJS.ProcessEnv,
+  deps: NetDeps,
+  print: Out,
+): Promise<number> {
+  const id = agentArg(agentId);
+  if (!v.out) throw new UsageError("--out <mirror.jsonl> is required");
+  if (existsSync(v.out)) throw new UsageError(`refusing to overwrite ${v.out}`);
+  const text = await pullMirror(deps.store ?? arkivStore(env), agentKey(id));
+  writeFileSync(v.out, text, { flag: "wx" });
+  print(json({ out: v.out, entities: text.split("\n").filter(Boolean).length }));
   return 0;
 }
 

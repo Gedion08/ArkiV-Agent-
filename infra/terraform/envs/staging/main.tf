@@ -34,7 +34,13 @@ variable "api_image_tag" {
 
 variable "api_desired_count" {
   type    = number
-  default = 2 # L11 §2: 2+ tasks behind the ALB
+  default = 2 # L11 §2: 2+ tasks behind the ALB (-var api_desired_count=1 for a cost-only staging)
+}
+
+variable "cpu_architecture" {
+  description = "Must match the pushed images: X86_64 when built on an amd64 laptop (no buildx)."
+  type        = string
+  default     = "ARM64"
 }
 
 variable "siwe_domain" {
@@ -92,8 +98,9 @@ resource "aws_sns_topic_subscription" "email" {
 }
 
 module "network" {
-  source = "../../modules/network"
-  name   = local.name
+  source       = "../../modules/network"
+  name         = local.name
+  endpoint_azs = 1 # staging cost: one set of endpoint ENIs (L11 §2 prod keeps 3)
 }
 
 module "kms" {
@@ -112,6 +119,11 @@ module "rds" {
   client_security_group_ids = [module.api.security_group_id, module.anchor.security_group_id]
   kms_key_arn               = module.kms.envelope_key_arn
   multi_az                  = false # staging; prod is Multi-AZ (L11 §2)
+  # staging runs in an AWS Free plan account: micro, 1-day backups, no Performance Insights
+  instance_class        = "db.t4g.micro"
+  allocated_storage_gb  = 20
+  backup_retention_days = 1
+  performance_insights  = false
 }
 
 resource "aws_ecr_repository" "this" {
@@ -144,14 +156,15 @@ resource "aws_ecs_cluster" "this" {
 }
 
 module "anchor" {
-  source        = "../../modules/ecs-service"
-  name          = "${local.name}-anchor"
-  cluster_arn   = aws_ecs_cluster.this.arn
-  vpc_id        = module.network.vpc_id
-  subnet_ids    = module.network.private_subnet_ids
-  image         = "${aws_ecr_repository.this["anchor"].repository_url}:${var.anchor_image_tag}"
-  desired_count = 1
-  single_task   = true # leader-locked (L5 §3.2); a deploy must not overlap two signers
+  source           = "../../modules/ecs-service"
+  name             = "${local.name}-anchor"
+  cluster_arn      = aws_ecs_cluster.this.arn
+  vpc_id           = module.network.vpc_id
+  subnet_ids       = module.network.private_subnet_ids
+  image            = "${aws_ecr_repository.this["anchor"].repository_url}:${var.anchor_image_tag}"
+  desired_count    = 1
+  cpu_architecture = var.cpu_architecture
+  single_task      = true # leader-locked (L5 §3.2); a deploy must not overlap two signers
   environment = {
     AFR_ANCHOR_CHAIN_ID   = "84532"
     AFR_ANCHOR_KMS_KEY_ID = module.kms.anchor_key_id
@@ -247,15 +260,16 @@ resource "aws_lb_listener" "http" {
 }
 
 module "api" {
-  source        = "../../modules/ecs-service"
-  name          = "${local.name}-api"
-  cluster_arn   = aws_ecs_cluster.this.arn
-  vpc_id        = module.network.vpc_id
-  subnet_ids    = module.network.private_subnet_ids
-  image         = "${aws_ecr_repository.this["api"].repository_url}:${var.api_image_tag}"
-  desired_count = var.api_desired_count
-  cpu           = 512
-  memory        = 1024
+  source           = "../../modules/ecs-service"
+  name             = "${local.name}-api"
+  cluster_arn      = aws_ecs_cluster.this.arn
+  vpc_id           = module.network.vpc_id
+  subnet_ids       = module.network.private_subnet_ids
+  image            = "${aws_ecr_repository.this["api"].repository_url}:${var.api_image_tag}"
+  desired_count    = var.api_desired_count
+  cpu              = 512
+  memory           = 1024
+  cpu_architecture = var.cpu_architecture
   # shortcut: no AFR_REDIS_URL yet, so each task rate-limits on its own (L8 §7); add ElastiCache with the cdn module
   environment = merge(
     {

@@ -16,6 +16,12 @@ variable "single_nat" {
   default     = true
 }
 
+variable "endpoint_azs" {
+  description = "AZs that get interface endpoint ENIs (3 = one per AZ, prod). Fewer saves cost; other AZs cross over."
+  type        = number
+  default     = 3
+}
+
 data "aws_availability_zones" "this" {
   state = "available"
 }
@@ -119,7 +125,7 @@ resource "aws_vpc_endpoint" "interface" {
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${data.aws_region.this.name}.${each.key}"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = aws_subnet.private[*].id
+  subnet_ids          = slice(aws_subnet.private[*].id, 0, var.endpoint_azs)
   security_group_ids  = [aws_security_group.endpoints.id]
   private_dns_enabled = true
   tags                = { Name = "${var.name}-${each.key}" }

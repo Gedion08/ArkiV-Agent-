@@ -32,6 +32,16 @@ variable "multi_az" {
   default = true
 }
 
+variable "backup_retention_days" {
+  type    = number
+  default = 14 # L11 §2 PITR
+}
+
+variable "performance_insights" {
+  type    = bool
+  default = true
+}
+
 variable "allocated_storage_gb" {
   type    = number
   default = 50
@@ -52,9 +62,10 @@ resource "aws_security_group" "this" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "clients" {
-  for_each                     = toset(var.client_security_group_ids)
+  # count, not for_each: the group ids are unknown until apply, their number isn't
+  count                        = length(var.client_security_group_ids)
   security_group_id            = aws_security_group.this.id
-  referenced_security_group_id = each.value
+  referenced_security_group_id = var.client_security_group_ids[count.index]
   ip_protocol                  = "tcp"
   from_port                    = 5432
   to_port                      = 5432
@@ -91,14 +102,14 @@ resource "aws_db_instance" "this" {
   db_subnet_group_name                = aws_db_subnet_group.this.name
   vpc_security_group_ids              = [aws_security_group.this.id]
   parameter_group_name                = aws_db_parameter_group.this.name
-  backup_retention_period             = 14
+  backup_retention_period             = var.backup_retention_days
   copy_tags_to_snapshot               = true
   deletion_protection                 = true
   skip_final_snapshot                 = false
   final_snapshot_identifier           = "${var.name}-final"
   auto_minor_version_upgrade          = true
-  performance_insights_enabled        = true
-  performance_insights_kms_key_id     = var.kms_key_arn
+  performance_insights_enabled        = var.performance_insights
+  performance_insights_kms_key_id     = var.performance_insights ? var.kms_key_arn : null
   publicly_accessible                 = false
 }
 

@@ -21,6 +21,12 @@ variable "image" {
   type = string
 }
 
+variable "cpu_architecture" {
+  description = "ARM64 (Graviton, prod) or X86_64 (images built on an amd64 machine)."
+  type        = string
+  default     = "ARM64"
+}
+
 variable "cpu" {
   type    = number
   default = 256
@@ -157,7 +163,7 @@ resource "aws_ecs_task_definition" "this" {
   task_role_arn            = aws_iam_role.task.arn
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "ARM64"
+    cpu_architecture        = var.cpu_architecture
   }
   container_definitions = jsonencode([{
     name                   = var.name

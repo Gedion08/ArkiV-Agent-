@@ -8,6 +8,7 @@ import {
   agentShowCommand,
   defaultPassphrase,
   keysReaderCommand,
+  mirrorPullCommand,
   type NetDeps,
   proveCommand,
   UsageError,
@@ -23,7 +24,8 @@ const USAGE = `usage:
   fr journal verify [--config FILE | --journal PATH]
   fr verify agent <agentId> [--lane N] [--reader-key FILE] [--json] [--strict]
                   [--writer 0x… ...] [--no-writer-filter] [--identity-rpc URL] [--base-rpc URL]
-                  [--operator 0x…  (local: agents)]
+                  [--operator 0x…  (local: agents)] [--mirror FILE  (instead of Arkiv)]
+  fr mirror pull <agentId> --out mirror.jsonl
   fr prove <agentId> <seq> --out proof.json [--lane N] [--no-writer-filter] [--identity-rpc URL]
   fr agent show <agentId> [--json] [--identity-rpc URL]
   fr agent update-registration <agentId> --out registration.json [--writer 0x… ...]
@@ -37,7 +39,7 @@ Without either flag, the dev identity in $AFR_DATA_DIR (default ~/.afr) written 
 
 type Out = (s: string) => void;
 
-const REMOTE = new Set(["verify", "prove", "agent", "keys"]);
+const REMOTE = new Set(["verify", "prove", "agent", "keys", "mirror"]);
 
 /** --journal, else the config's lane dir, else the fr-proxy dev identity. */
 function journalPath(v: { config?: string; journal?: string }, env: NodeJS.ProcessEnv): string {
@@ -121,6 +123,7 @@ async function remote(
         out: { type: "string" },
         uri: { type: "string" },
         endpoint: { type: "string" },
+        mirror: { type: "string" },
         help: { type: "boolean" },
       },
     });
@@ -133,6 +136,8 @@ async function remote(
     if (p[0] === "agent" && p[1] === "show") return await agentShowCommand(p[2], v, d, print);
     if (p[0] === "agent" && p[1] === "update-registration")
       return await updateRegistrationCommand(p[2], v, d, print);
+    if (p[0] === "mirror" && p[1] === "pull")
+      return await mirrorPullCommand(p[2], v, env, d, print);
     if (p[0] === "keys" && p[1] === "reader")
       return await keysReaderCommand(p[2], p[3], v, d, print);
     throw new UsageError("unknown command");

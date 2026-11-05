@@ -4,14 +4,11 @@
 
 ## Verify an agent in 60 seconds
 
-1. **Get the CLI.** `@afr/cli` isn't on npm yet, so build it from this repo (Node ≥ 22.10, pnpm):
+1. **Get the CLI** (Node ≥ 22.10). `@afr/cli` isn't on the npm registry yet. Its tarballs are on this repo's GitHub Release, so `npx` runs it directly:
    ```bash
-   pnpm i && pnpm --filter @afr/cli... build
+   alias fr="npx --yes https://github.com/Gedion08/ArkiV-Agent-/releases/download/cli-v0.1.0/afr-cli-0.1.0.tgz"
    ```
-   ```bash
-   alias fr="node $PWD/apps/cli/dist/cli.js"
-   ```
-   Once published, use `npx @afr/cli` instead.
+   The release also has a `SHA256SUMS` file. To build from source instead, use `pnpm i && pnpm --filter @afr/cli... build`, then `alias fr="node $PWD/apps/cli/dist/cli.js"`.
 2. **Get an Arkiv access key** from the Arkiv Hub. It only needs to read.
    ```bash
    export ARKIV_ACCESS_KEY=…
@@ -42,6 +39,19 @@ RESULT: PASS (structural)   — run with --reader-key for full verification
 
 Public RPCs are used by default. Pass `--base-rpc URL` for Base and `--identity-rpc URL` for the registry if you have your own.
 
+## Verify against a local copy
+
+`fr mirror pull` saves every entity of the agent from Arkiv to one JSON-lines file. `--mirror` then verifies against that file instead of Arkiv, with the same checks and no access key. The chains are still read for identity and anchors. Editing the file changes nothing about what passes: the signatures, hash chain and anchors decide, so any tampering shows up.
+
+```bash
+fr mirror pull eip155:84532:0x8004a818bfb912233c491871b3d84c89a494bd9e:10588 --out demo.jsonl
+```
+```bash
+fr verify agent eip155:84532:0x8004a818bfb912233c491871b3d84c89a494bd9e:10588 --mirror demo.jsonl
+```
+
+Flip one byte of a batch's `payload` in the file and run it again: the result is `FAIL` (exit 2), with a finding naming the lane and seq of the broken record or batch, such as `✖ FRAME_DECODE lane 0 seq 0`.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -59,6 +69,7 @@ Add `--json` for the full report.
 fr agent show <agentId>                         # the registration and its afr service entry
 fr prove <agentId> <seq> --out proof.json       # one record with its batch, checkpoint and Merkle proof
 fr keys reader new --out me.afrkey              # a reader key to send an operator for full verification
+fr mirror pull <agentId> --out mirror.jsonl     # a local copy for verify --mirror
 ```
 
 `fr --help` lists everything, including `fr journal verify` for a recorder's local journal.
