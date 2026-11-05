@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+@layer base {
+  /* the page itself follows the system theme, so dark-mode text never sits on a white page */
+  :root {
+    color-scheme: light dark;
+  }
+  body {
+    @apply bg-white text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  }
+}
+
 @theme {
   --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }

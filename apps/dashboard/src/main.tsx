@@ -2,9 +2,11 @@ import "./index.css";
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { WagmiProvider } from "wagmi";
 import { App } from "./app.js";
 import { ApiError } from "./lib/api.js";
 import { navigate } from "./lib/route.js";
+import { wagmiConfig } from "./lib/wallet.js";
 
 const toLogin = (e: unknown) => {
   if (e instanceof ApiError && e.status === 401 && location.pathname !== "/login")
@@ -24,8 +26,11 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    {/* no reconnect on load: the wallet is only used to sign in, so its SDKs load on demand */}
+    <WagmiProvider config={wagmiConfig} reconnectOnMount={false}>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </WagmiProvider>
   </StrictMode>,
 );

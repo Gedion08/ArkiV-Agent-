@@ -1,4 +1,4 @@
-import type { Agent, Alert, Lane } from "./api.js";
+import type { Agent, Alert } from "./api.js";
 
 export const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
 export type Severity = (typeof SEVERITIES)[number];
@@ -24,23 +24,35 @@ export function ago(iso: string | null, now: number): string {
   return `${Math.floor(s / 86_400)} d ago`;
 }
 
-export function severityCounts(alerts: Alert[], agentId: string) {
+export function severityCounts(alerts: Alert[]) {
   const c: Partial<Record<Severity, number>> = {};
-  for (const a of alerts) if (a.agent_id === agentId) c[a.severity] = (c[a.severity] ?? 0) + 1;
+  for (const a of alerts) c[a.severity] = (c[a.severity] ?? 0) + 1;
   return c;
 }
 
 export type DisplayStatus = Agent["status"] | "silent";
 /** "silent" comes from the watcher's open RECORDER_SILENT alert (L6 §5), so list and inbox agree. */
-export const displayStatus = (agent: Agent, open: Alert[]): DisplayStatus =>
-  agent.status === "active" &&
-  open.some((a) => a.agent_id === agent.id && a.type === "RECORDER_SILENT")
-    ? "silent"
-    : agent.status;
+export const displayStatus = (status: Agent["status"], recorderSilent: boolean): DisplayStatus =>
+  status === "active" && recorderSilent ? "silent" : status;
 
-/** Latest batch across lanes (ISO strings from toISOString compare in time order). */
-export const lastAction = (lanes: Lane[]) =>
-  lanes.reduce<string | null>(
-    (m, l) => (l.last_batch_at && (!m || l.last_batch_at > m) ? l.last_batch_at : m),
-    null,
-  );
+const CHAINS: Record<string, string> = {
+  "1": "Ethereum",
+  "8453": "Base",
+  "84532": "Base Sepolia",
+  "11155111": "Sepolia",
+};
+const EIP155 = /^eip155:(\d+):(0x[0-9a-f]{40}):(\d+)$/;
+/**
+ * ERC-8004 ids read as their token and chain ("#10593", "Base Sepolia · registry 0x8004…8847");
+ * dev ids (`local:<uuid>`) as "local" and the uuid's first group.
+ */
+export function agentLabel(id: string): { primary: string; secondary: string } {
+  const m = EIP155.exec(id);
+  if (m)
+    return {
+      primary: `#${m[3]}`,
+      secondary: `${CHAINS[m[1] as string] ?? `chain ${m[1]}`} · registry ${short(m[2] as string, 4)}`,
+    };
+  if (id.startsWith("local:")) return { primary: "local", secondary: id.slice(6, 14) };
+  return { primary: id.length > 24 ? `${id.slice(0, 24)}…` : id, secondary: "" };
+}

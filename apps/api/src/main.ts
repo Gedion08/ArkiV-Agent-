@@ -3,6 +3,7 @@
 //   node dist/main.js   env: AFR_PG_URL, AFR_SIWE_DOMAIN, and AFR_KMS_ENVELOPE_KEY_ID (or AFR_API_LOCAL_KEK,
 //                       32-byte hex, for local dev); optional AFR_DASHBOARD_ORIGIN, AFR_REDIS_URL,
 //                       AFR_SMTP_URL + AFR_MAIL_FROM, AFR_SIWE_RPC_URL + AFR_SIWE_CHAIN_ID (8453), PORT (8080), HOST,
+//                       AFR_DASHBOARD_DIR (the dashboard build, served at /; ADR-026),
 //                       AFR_WEBHOOK_ALLOW_PRIVATE=1 (local dev only: webhooks to http:// and private addresses)
 // The notifier (L8 §5) runs in every API task; deliveries are claimed with SKIP LOCKED.
 
@@ -64,6 +65,7 @@ export function readApiEnv(env: NodeJS.ProcessEnv) {
     port,
     host: env.HOST ?? "0.0.0.0",
     allowPrivateWebhooks: env.AFR_WEBHOOK_ALLOW_PRIVATE === "1",
+    dashboardDir: env.AFR_DASHBOARD_DIR,
   };
 }
 
@@ -88,6 +90,7 @@ export async function startApi(
       ...(redis ? { redis } : {}),
       ...(c.smtp ? { mailer: smtpMailer(c.smtp.url, c.smtp.from) } : {}),
       ...(c.allowPrivateWebhooks ? { allowPrivateWebhooks: true } : {}),
+      ...(c.dashboardDir ? { dashboardDir: c.dashboardDir } : {}),
       ...(c.siweRpc
         ? {
             siweClient: createPublicClient({

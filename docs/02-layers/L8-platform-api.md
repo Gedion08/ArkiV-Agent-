@@ -149,7 +149,7 @@ CREATE TABLE audit_log (id bigserial PK, org_id uuid, actor text, action text, t
 
 | Method | Path | Notes |
 |---|---|---|
-| GET/POST | `/v1/orgs/{org}/agents` | create: `{agent_id \| register: {...}, name, privacy_level, retention_days, ...}` → also provisions the watch key (returned **once**, for the recorder config) |
+| GET/POST | `/v1/orgs/{org}/agents` | create: `{agent_id \| register: {...}, name, privacy_level, retention_days, ...}` → also provisions the watch key (returned **once**, for the recorder config). The list adds a per-agent `summary`: `last_batch_at`, `last_heartbeat_at`, `recorder_silent` (an open `RECORDER_SILENT`) and `open_alerts` by severity |
 | GET/PATCH | `/v1/agents/{id}` | settings (`name`, `status`, `approval_threshold_cents`, `watch_grace_s` 15–600). Privacy/retention changes require a new signed AgentProfile (`profile_statement` in the body) |
 | POST | `/v1/agents/{id}/watch-key/rotate` | → `{watch_key}` (shown once; put it in the recorder config). The previous key is kept so the watcher still matches intents committed under it. Only one previous key is kept |
 | POST | `/v1/agents/{id}/recorder-keys` | → `afr_rk_…` (shown once) |

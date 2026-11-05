@@ -15,6 +15,7 @@ import {
   validatorCompiler,
 } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { dashboardRoutes } from "./dashboard.js";
 import {
   ApiError,
   type ApiOptions,
@@ -128,5 +129,6 @@ export async function buildServer(o: ApiOptions): Promise<FastifyInstance> {
   await app.register(agentRoutes, ctx);
   await app.register(recorderRoutes, ctx);
   await app.register(alertRoutes, ctx);
+  if (o.dashboardDir) await dashboardRoutes(app, o.dashboardDir);
   return app;
 }

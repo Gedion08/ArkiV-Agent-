@@ -657,6 +657,18 @@ export interface paths {
                                 /** @enum {string} */
                                 status: "active" | "paused" | "archived";
                                 watch_grace_s: number;
+                                summary: {
+                                    last_batch_at: string | null;
+                                    last_heartbeat_at: string | null;
+                                    recorder_silent: boolean;
+                                    open_alerts: {
+                                        critical: number;
+                                        high: number;
+                                        medium: number;
+                                        low: number;
+                                        info: number;
+                                    };
+                                };
                             }[];
                         };
                     };

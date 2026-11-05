@@ -4,6 +4,8 @@ packages:
   - tools/e2e
   - contracts
 allowBuilds:
+  # postinstall not needed: wagmi loads AppKit only for WalletConnect sign-in
+  "@reown/appkit": false
   better-sqlite3: true
   cbor-extract: false
 onlyBuiltDependencies:

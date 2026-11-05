@@ -148,7 +148,7 @@ Each layer has its own spec in [`docs/02-layers/`](../02-layers/).
 | Control-plane API | service | AFR cloud | DB creds, Stripe, notifier tokens | no | P2–P4 |
 | Notifier | worker | AFR cloud | Slack/Telegram/email tokens | no | P4 |
 | Approvals service | service | AFR cloud | approval attestation key (KMS) | request summary only (opt-in) | P6 |
-| Dashboard | static SPA (Vite + React, ADR-026) | browser + AFR cloud | reader key **in browser only** | **in browser only** | P4 |
+| Dashboard | static SPA (Vite + React, ADR-026), served by the API | browser + AFR cloud | reader key **in browser only** | **in browser only** | P4 |
 | `fr` CLI + verifier | binary / npm | anyone | optional reader key | optional | P3 |
 
 ---
@@ -554,7 +554,7 @@ Full table in [L11 §6](../02-layers/L11-infra-devops-security.md). Key points:
 | Batch frame | **CBOR** via `cbor-x` (deterministic mode) + `fflate` deflate | Compact. Works in browser |
 | API | **Fastify** + **Zod** + `fastify-type-provider-zod`, OpenAPI generation | |
 | DB | **Postgres 16** + **Drizzle ORM** + `pg-boss` (jobs) | No Redis needed at MVP |
-| Dashboard | **Vite + React 19 SPA** (ADR-026), Tailwind, TanStack Query/Table, viem + SIWE (injected wallet), DuckDB-WASM (v1 search) | |
+| Dashboard | **Vite + React 19 SPA** (ADR-026), Tailwind, TanStack Query/Table, wagmi + viem + SIWE (EIP-6963, Coinbase, WalletConnect), DuckDB-WASM (v1 search) | |
 | Contracts | **Solidity 0.8.28+**, **Foundry** | |
 | CLI | `commander` + `ink` (optional), bundled with `tsdown` into a single file. `bun build --compile` for binaries | |
 | Python SDK (v1) | Python ≥ 3.10, `httpx`, `web3.py`, talks to a local recorder sidecar over HTTP/unix socket | No crypto re-implementation in Python |

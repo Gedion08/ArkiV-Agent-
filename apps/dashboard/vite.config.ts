@@ -4,8 +4,19 @@ import { defaultClientConditions, defineConfig, type Plugin } from "vite";
 
 // L9 §5 CSP on the built page only (dev needs Vite's inline HMR preamble). A <meta> can't carry
 // frame-ancestors: whatever serves dist/ must also send the policy, with frame-ancestors 'none', as a header.
-const CSP =
-  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' blob: data:; style-src 'self'; base-uri 'none'; form-action 'self'";
+// The wallet origins are for sign-in only: WalletConnect relay, Verify and AppKit assets; Coinbase keys popup;
+// Base public RPCs (wagmi transports).
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "connect-src 'self' https://*.walletconnect.com wss://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.org https://*.reown.com https://keys.coinbase.com https://mainnet.base.org https://sepolia.base.org",
+  "img-src 'self' blob: data: https://*.walletconnect.com https://*.reown.com",
+  "font-src 'self' https://fonts.reown.com",
+  "frame-src https://verify.walletconnect.com https://verify.walletconnect.org https://secure.walletconnect.org https://keys.coinbase.com",
+  "style-src 'self'",
+  "base-uri 'none'",
+  "form-action 'self'",
+].join("; ");
 const csp = (): Plugin => ({
   name: "afr-csp",
   apply: "build",

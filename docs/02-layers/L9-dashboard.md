@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| App | `apps/dashboard`: static SPA (ADR-026). Vite, React 19, TypeScript, Tailwind, TanStack Query (+ Table + Virtual when the timeline needs them), viem + SIWE with the injected wallet, Web Workers, IndexedDB (`idb`), DuckDB-WASM (v1 search), Recharts. Served from the API's origin (the `__Host-` session cookie is `SameSite=Strict`) |
+| App | `apps/dashboard`: static SPA (ADR-026). Vite, React 19, TypeScript, Tailwind, TanStack Query (+ Table + Virtual when the timeline needs them), wagmi + viem + SIWE (EIP-6963 extensions, Coinbase Wallet, WalletConnect), Web Workers, IndexedDB (`idb`), DuckDB-WASM (v1 search), Recharts. Served by the API from its own origin (`AFR_DASHBOARD_DIR`; the `__Host-` session cookie is `SameSite=Strict`) |
 | Depends on | `@afr/client` (API), `@afr/store` (browser Arkiv reader), `@afr/crypto`, `@afr/verifier`, `@afr/core` |
 | Requirements | DSH-01…DSH-12, PRV-07, C18–C21, C27 |
 | Phase | P4 (agents, timeline, replay, alerts, verify badge, key onboarding), P6 (search, grants, packs, policy editor, approvals, public pages) |
@@ -75,7 +75,7 @@ flowchart LR
 
 ### 4.1 Agent list
 
-Columns: name · agent ID (short) · status (active/paused/silent) · last action · last anchor (age, colour-coded vs. cadence) · open alerts by severity · privacy level · retention · verify badge. Filters: status, has critical alerts. Row click → overview.
+Columns: name · agent ID (ERC-8004 token and chain, e.g. `#10593 Base Sepolia`; full ID on hover) · status (active/paused/silent) · last action · last anchor (age, colour-coded vs. cadence) · open alerts by severity · privacy level · retention · verify badge. Filters: status, has critical alerts. Row click → overview. One request: the list endpoint returns a per-agent `summary` (last batch, last heartbeat, open alerts by severity, recorder silent; L8 §4.3).
 
 ### 4.2 Agent overview
 
@@ -190,6 +190,7 @@ apps/dashboard/
 ```
 
 Routes (§1) are parsed in `src/lib/route.ts` on the History API.
+- **Wallets (`src/lib/wallet.ts`):** WalletConnect appears when `VITE_WALLETCONNECT_PROJECT_ID` is set at build time. The Reown project must allowlist the dashboard's origin.
 - **Local dev:** `pnpm --filter @afr/dashboard dev` proxies `/v1` to the API, set with `AFR_API_URL` (default `http://127.0.0.1:8080`), so the cookies stay same-origin. The API needs `AFR_SIWE_DOMAIN=localhost:5173`.
 
 ## 8. Tests and acceptance criteria

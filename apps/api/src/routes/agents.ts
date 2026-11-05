@@ -57,6 +57,23 @@ const Agent = z.strictObject({
   status: Status,
   watch_grace_s: z.number().int(),
 });
+const Count = z.number().int();
+/** List-only summary (L8 §4.3), so the dashboard's agent list is one request (L9 §4.1). */
+const AgentListItem = Agent.extend({
+  summary: z.strictObject({
+    last_batch_at: Iso.nullable(),
+    last_heartbeat_at: Iso.nullable(),
+    /** An open RECORDER_SILENT alert (L6 §5). */
+    recorder_silent: z.boolean(),
+    open_alerts: z.strictObject({
+      critical: Count,
+      high: Count,
+      medium: Count,
+      low: Count,
+      info: Count,
+    }),
+  }),
+});
 const KeyParam = AgentParam.extend({ keyId: z.string().regex(/^[0-9a-f]{16}$/) });
 const WatchedKind = z.enum(["eoa", "smart_account", "safe", "session_key"]);
 const Watched = z.strictObject({
@@ -164,19 +181,63 @@ export const agentRoutes: ZodPlugin<
     "/v1/orgs/:org/agents",
     {
       ...auth,
-      schema: { params: OrgParam, response: { 200: z.strictObject({ agents: z.array(Agent) }) } },
+      schema: {
+        params: OrgParam,
+        response: { 200: z.strictObject({ agents: z.array(AgentListItem) }) },
+      },
     },
     async (req) =>
       inOrg(pool, req.params.org, async (q) => {
         const role = await requireRole(q, req.params.org, uid(req));
-        const { rows } = await q.query<AgentRow>(
-          role === "auditor"
-            ? `SELECT a.* FROM agents a JOIN agent_auditors x ON x.agent_id = a.id
-               WHERE a.org_id = $1 AND x.user_id = $2 ORDER BY a.created_at`
-            : "SELECT * FROM agents WHERE org_id = $1 ORDER BY created_at",
-          role === "auditor" ? [req.params.org, uid(req)] : [req.params.org],
+        const auditor = role === "auditor";
+        const { rows } = await q.query<
+          AgentRow & {
+            last_batch_at: Date | null;
+            last_heartbeat_at: Date | null;
+            silent: boolean;
+            critical: number;
+            high: number;
+            medium: number;
+            low: number;
+            info: number;
+          }
+        >(
+          `SELECT a.*, l.last_batch_at, l.last_heartbeat_at, coalesce(x.silent, false) AS silent,
+                  coalesce(x.critical, 0) AS critical, coalesce(x.high, 0) AS high,
+                  coalesce(x.medium, 0) AS medium, coalesce(x.low, 0) AS low, coalesce(x.info, 0) AS info
+             FROM agents a
+             ${auditor ? "JOIN agent_auditors au ON au.agent_id = a.id AND au.user_id = $2" : ""}
+             LEFT JOIN LATERAL (
+               SELECT max(last_batch_at) AS last_batch_at, max(last_heartbeat_at) AS last_heartbeat_at
+                 FROM agent_lanes WHERE agent_id = a.id) l ON true
+             LEFT JOIN LATERAL (
+               SELECT bool_or(type = 'RECORDER_SILENT') AS silent,
+                      count(*) FILTER (WHERE severity = 'critical')::int AS critical,
+                      count(*) FILTER (WHERE severity = 'high')::int AS high,
+                      count(*) FILTER (WHERE severity = 'medium')::int AS medium,
+                      count(*) FILTER (WHERE severity = 'low')::int AS low,
+                      count(*) FILTER (WHERE severity = 'info')::int AS info
+                 FROM alerts WHERE agent_id = a.id AND status = 'open') x ON true
+            WHERE a.org_id = $1 ORDER BY a.created_at`,
+          auditor ? [req.params.org, uid(req)] : [req.params.org],
         );
-        return { agents: rows.map(agentJson) };
+        return {
+          agents: rows.map((r) => ({
+            ...agentJson(r),
+            summary: {
+              last_batch_at: iso(r.last_batch_at),
+              last_heartbeat_at: iso(r.last_heartbeat_at),
+              recorder_silent: r.silent,
+              open_alerts: {
+                critical: r.critical,
+                high: r.high,
+                medium: r.medium,
+                low: r.low,
+                info: r.info,
+              },
+            },
+          })),
+        };
       }),
   );
 

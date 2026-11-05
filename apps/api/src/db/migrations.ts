@@ -180,6 +180,8 @@ const MIGRATIONS: string[] = [
        EXECUTE format('CREATE POLICY tenant ON %I TO afr_app USING (org_id = afr_org()) WITH CHECK (org_id = afr_org())', t);
      END LOOP;
    END $$;`,
+  // v9: open alerts per agent, for the agent list summary (L8 §4.3)
+  `CREATE INDEX alerts_agent_open ON alerts (agent_id, severity) WHERE status = 'open';`,
 ];
 
 /** Applies pending migrations, one transaction each; an advisory lock keeps concurrent starts serial. */

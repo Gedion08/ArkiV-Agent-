@@ -322,6 +322,7 @@ module "api" {
     {
       AFR_KMS_ENVELOPE_KEY_ID = module.kms.envelope_key_arn
       AFR_SIWE_DOMAIN         = var.siwe_domain
+      AFR_DASHBOARD_DIR       = "/app/dashboard" # ADR-026: the api image carries the dashboard build
       AWS_REGION              = var.region
       PORT                    = "8080"
     },

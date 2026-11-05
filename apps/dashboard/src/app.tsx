@@ -44,14 +44,14 @@ function Shell({ route }: { route: Route }) {
           AFR
         </Link>
         <OrgSwitcher orgs={orgs.data?.orgs ?? []} current={org} />
-        <span className="ml-auto font-mono text-sm text-slate-500" title={wallet}>
+        <span className="ml-auto hidden font-mono text-sm text-slate-500 sm:inline" title={wallet}>
           {short(wallet, 4)}
         </span>
         <button
           type="button"
           onClick={() => logout.mutate()}
           disabled={logout.isPending}
-          className="text-sm underline-offset-2 hover:underline"
+          className="ml-auto text-sm underline-offset-2 hover:underline sm:ml-0"
         >
           Sign out
         </button>

@@ -18,6 +18,31 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 
 ## Session entries
 
+### 2026-11-05: P4-08 follow-up: dashboard hosting, wallets, agent list summary
+- **Hosting (ADR-026 revised):** the API serves the dashboard build (`apps/api/src/dashboard.ts`, `AFR_DASHBOARD_DIR`).
+  - **Image:** the api image builds `@afr/dashboard` into `/app/dashboard`, and staging sets `AFR_DASHBOARD_DIR`. No CloudFront and no domain are needed, and it shares the origin with the `__Host-` cookie.
+  - **Serving:** files are held in memory. App routes get `index.html`; `/v1/*`, unknown files and source maps return 404.
+  - **Headers:** the build's CSP goes out as a header with `frame-ancestors 'none'`, plus COOP `same-origin-allow-popups` (Coinbase popup). Hashed assets are immutable and `index.html` is `no-cache`. The route is exempt from the per-session rate limit.
+- **Wallets (`apps/dashboard/src/lib/wallet.ts`):**
+  - **Packages:** wagmi 3.7.9, `@walletconnect/ethereum-provider` 2.26.0 and `@coinbase/wallet-sdk` 4.4.0, exact pins. AppKit's install script is not approved.
+  - **Picker:** lists EIP-6963 extensions, the generic injected wallet only when none announce themselves, Coinbase Wallet, and WalletConnect when `VITE_WALLETCONNECT_PROJECT_ID` is set at build time (Docker build arg).
+  - **Loading:** the SDKs load only on demand (no reconnect on load), and the wallet is disconnected after sign-in.
+  - **CSP:** extended for the WalletConnect relay, Verify and AppKit assets, the Coinbase keys popup, and the Base RPCs.
+- **API:**
+  - `GET /v1/orgs/{org}/agents` now returns a per-agent `summary` from one SQL query: last batch, last heartbeat, `recorder_silent`, and `open_alerts` by severity.
+  - Migration v9 adds the partial index `alerts_agent_open`.
+  - OpenAPI and the client are regenerated.
+  - The dashboard list is one request. The overview reads only that agent's open alerts and shows "500+" at the page cap.
+- **Agent IDs:** `#10593 Base Sepolia · registry 0x8004…8847`, or `local afc0a2a1`, with the full ID on hover.
+- **UI fixes from a browser walkthrough (desktop and mobile, light and dark):**
+  - Overview cards show "…" while loading instead of "none"/"never".
+  - The page background follows the system theme.
+  - On mobile the list hides the registry, Privacy and Retention columns and the header wallet address.
+- **Tests:**
+  - api: a summary test and `dashboard.test.ts` (SPA fallback, headers, caching, 404s, no-CSP refusal).
+  - dashboard: 9 tests (labels, picker order, wrapped wallet rejections).
+  - Lint and depcruise pass, and api/dashboard/client/e2e typecheck and tests pass.
+
 ### 2026-11-05: P4-08: dashboard scaffold, SIWE login, org switcher, agent list and overview
 - **Stack (ADR-026):** a static SPA with Vite 8.3.5, React 19.3.1, Tailwind 4.3.3 and TanStack Query 5.104.5, plus viem's SIWE helpers with the injected wallet.
   - **Not adopted:** Next.js, shadcn/ui, wagmi and a router.

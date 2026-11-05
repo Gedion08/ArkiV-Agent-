@@ -469,6 +469,47 @@ describe.skipIf(!URL)("apps/api v0", () => {
     expect((await del(u)).statusCode).toBe(404);
   });
 
+  test("agent list: per-agent summary of lanes and open alerts in one response", async () => {
+    const { u, org, agent } = await setup();
+    const empty = (
+      await app.inject({ method: "GET", url: `/v1/orgs/${org.id}/agents`, headers: u.get })
+    ).json();
+    expect(empty.agents[0].summary).toEqual({
+      last_batch_at: null,
+      last_heartbeat_at: null,
+      recorder_silent: false,
+      open_alerts: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+    });
+    await pool.query(
+      `INSERT INTO agent_lanes (agent_id, lane, last_batch_at, last_heartbeat_at) VALUES
+         ($1, 0, '2026-11-05T10:00:00Z', '2026-11-05T12:00:00Z'), ($1, 1, '2026-11-05T11:00:00Z', NULL)`,
+      [agent.id],
+    );
+    const alert = (type: string, severity: string, status: string) =>
+      pool.query(
+        `INSERT INTO alerts (org_id, agent_id, type, severity, dedupe_key, status, subject, evidence)
+         VALUES ($1, $2, $3, $4, $5, $6, '{}', '{}')`,
+        [org.id, agent.id, type, severity, `${type}:${randomBytes(4).toString("hex")}`, status],
+      );
+    await alert("UNLOGGED_TX", "critical", "open");
+    await alert("UNLOGGED_TX", "critical", "open");
+    await alert("RECORDER_SILENT", "high", "open");
+    await alert("ANCHOR_LAG", "high", "resolved"); // not open: not counted
+    await alert("SEQ_GAP", "critical", "acked");
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/orgs/${org.id}/agents`,
+      headers: u.get,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().agents[0].summary).toEqual({
+      last_batch_at: "2026-11-05T11:00:00.000Z",
+      last_heartbeat_at: "2026-11-05T12:00:00.000Z",
+      recorder_silent: true,
+      open_alerts: { critical: 2, high: 1, medium: 0, low: 0, info: 0 },
+    });
+  });
+
   test("read views: lanes, batch index and checkpoints with cursors", async () => {
     const { u, agent, key } = await setup();
     for (const [from, to] of [

@@ -1,16 +1,10 @@
 // L9 §4.1 agent list. Last anchor and the verify badge come with P4-14.
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "../components/link.js";
-import { Hash, Loading, Problem, SeverityChips, StatusText, useNow } from "../components/ui.js";
-import { api, lanesQuery, ok, openAlertsQuery } from "../lib/api.js";
-import {
-  ago,
-  type DisplayStatus,
-  displayStatus,
-  lastAction,
-  severityCounts,
-} from "../lib/format.js";
+import { AgentId, Loading, Problem, SeverityChips, StatusText, useNow } from "../components/ui.js";
+import { api, ok } from "../lib/api.js";
+import { ago, type DisplayStatus, displayStatus } from "../lib/format.js";
 import { hrefs } from "../lib/route.js";
 
 const STATUSES: DisplayStatus[] = ["active", "silent", "paused", "archived"];
@@ -21,22 +15,19 @@ export function AgentsPage({ org }: { org: string }) {
     queryKey: ["agents", org],
     queryFn: () => ok(api().GET("/v1/orgs/{org}/agents", { params: { path: { org } } })),
   });
-  const open = useQuery(openAlertsQuery(org));
   const list = agents.data?.agents ?? [];
-  // shortcut: lanes are fetched per agent (N requests); add a lane summary to the list endpoint for big orgs
-  const lanes = useQueries({ queries: list.map((a) => lanesQuery(a.id)) });
   const [status, setStatus] = useState<DisplayStatus | "">("");
   const [critical, setCritical] = useState(false);
 
   if (agents.isPending) return <Loading />;
   if (agents.isError) return <Problem error={agents.error} />;
-  const alerts = open.data?.alerts ?? [];
+  // one request: the list carries each agent's lane and open-alert summary (L8 §4.3)
   const rows = list
-    .map((a, i) => ({
+    .map((a) => ({
       a,
-      status: displayStatus(a, alerts),
-      counts: severityCounts(alerts, a.id),
-      last: lastAction(lanes[i]?.data?.lanes ?? []),
+      status: displayStatus(a.status, a.summary.recorder_silent),
+      counts: a.summary.open_alerts,
+      last: a.summary.last_batch_at,
     }))
     .filter((r) => (!status || r.status === status) && (!critical || r.counts.critical));
 
@@ -70,7 +61,6 @@ export function AgentsPage({ org }: { org: string }) {
           </label>
         </div>
       </div>
-      {open.isError && <Problem error={open.error} />}
       {list.length === 0 ? (
         <p className="mt-8 text-slate-600 dark:text-slate-400">
           No agents yet. Register one with{" "}
@@ -87,8 +77,8 @@ export function AgentsPage({ org }: { org: string }) {
                 <th className="py-2 pr-4 font-medium">Status</th>
                 <th className="py-2 pr-4 font-medium">Last action</th>
                 <th className="py-2 pr-4 font-medium">Open alerts</th>
-                <th className="py-2 pr-4 font-medium">Privacy</th>
-                <th className="py-2 font-medium">Retention</th>
+                <th className="hidden py-2 pr-4 font-medium md:table-cell">Privacy</th>
+                <th className="hidden py-2 font-medium md:table-cell">Retention</th>
               </tr>
             </thead>
             <tbody>
@@ -103,7 +93,7 @@ export function AgentsPage({ org }: { org: string }) {
                     </Link>
                   </td>
                   <td className="py-2 pr-4">
-                    <Hash value={a.agent_id} n={8} />
+                    <AgentId id={a.agent_id} compact />
                   </td>
                   <td className="py-2 pr-4">
                     <StatusText status={s} />
@@ -114,8 +104,8 @@ export function AgentsPage({ org }: { org: string }) {
                   <td className="py-2 pr-4">
                     <SeverityChips counts={counts} />
                   </td>
-                  <td className="py-2 pr-4">{a.privacy_level}</td>
-                  <td className="py-2">{a.retention_days} d</td>
+                  <td className="hidden py-2 pr-4 md:table-cell">{a.privacy_level}</td>
+                  <td className="hidden py-2 md:table-cell">{a.retention_days} d</td>
                 </tr>
               ))}
             </tbody>

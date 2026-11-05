@@ -1014,6 +1014,71 @@
                             "type": "integer",
                             "minimum": -9007199254740991,
                             "maximum": 9007199254740991
+                          },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "last_batch_at": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "last_heartbeat_at": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "recorder_silent": {
+                                "type": "boolean"
+                              },
+                              "open_alerts": {
+                                "type": "object",
+                                "properties": {
+                                  "critical": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "high": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "medium": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "low": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "info": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  }
+                                },
+                                "required": [
+                                  "critical",
+                                  "high",
+                                  "medium",
+                                  "low",
+                                  "info"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "last_batch_at",
+                              "last_heartbeat_at",
+                              "recorder_silent",
+                              "open_alerts"
+                            ],
+                            "additionalProperties": false
                           }
                         },
                         "required": [
@@ -1026,7 +1091,8 @@
                           "retention_days",
                           "approval_threshold_cents",
                           "status",
-                          "watch_grace_s"
+                          "watch_grace_s",
+                          "summary"
                         ],
                         "additionalProperties": false
                       }

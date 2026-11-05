@@ -4,15 +4,17 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "../components/link.js";
 import {
+  AgentId,
   Card,
   Hash,
   Loading,
+  Pending,
   Problem,
   SeverityChips,
   StatusText,
   useNow,
 } from "../components/ui.js";
-import { api, lanesQuery, ok, openAlertsQuery } from "../lib/api.js";
+import { api, lanesQuery, OPEN_ALERTS_PAGE, ok, openAlertsQuery } from "../lib/api.js";
 import { ago, displayStatus, SEVERITY_CLASS, severityCounts } from "../lib/format.js";
 import { hrefs } from "../lib/route.js";
 
@@ -23,7 +25,7 @@ export function AgentPage({ org, id }: { org: string; id: string }) {
     queryFn: () => ok(api().GET("/v1/agents/{id}", { params: { path: { id } } })),
   });
   const lanes = useQuery(lanesQuery(id));
-  const open = useQuery(openAlertsQuery(org));
+  const open = useQuery(openAlertsQuery(org, id));
   const recent = useQuery({
     queryKey: ["alerts", org, "agent", id],
     queryFn: () =>
@@ -58,8 +60,7 @@ export function AgentPage({ org, id }: { org: string; id: string }) {
         <div>
           <h1 className="text-xl font-semibold">{a.name}</h1>
           <p className="mt-1 text-sm text-slate-500">
-            <span className="font-mono break-all">{a.agent_id}</span> · agent key{" "}
-            <Hash value={a.agent_key} />
+            <AgentId id={a.agent_id} /> · agent key <Hash value={a.agent_key} />
           </p>
         </div>
         <button
@@ -79,17 +80,38 @@ export function AgentPage({ org, id }: { org: string; id: string }) {
 
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5">
         <Card label="Status">
-          <StatusText status={displayStatus(a, openAlerts)} />
+          {/* "silent" needs the open alerts; until they load, show the stored status */}
+          <StatusText
+            status={displayStatus(
+              a.status,
+              openAlerts.some((x) => x.type === "RECORDER_SILENT"),
+            )}
+          />
         </Card>
         <Card label="Open alerts">
-          <SeverityChips counts={severityCounts(openAlerts, a.id)} />
+          {open.isPending ? <Pending /> : <SeverityChips counts={severityCounts(openAlerts)} />}
+          {openAlerts.length >= OPEN_ALERTS_PAGE && (
+            <span className="text-sm text-slate-500">{OPEN_ALERTS_PAGE}+ open</span>
+          )}
         </Card>
-        <Card label="Store lag">{storeLag.length ? `${Math.max(...storeLag)} s` : "–"}</Card>
+        <Card label="Store lag">
+          {lanes.isPending ? <Pending /> : storeLag.length ? `${Math.max(...storeLag)} s` : "–"}
+        </Card>
         <Card label="Pending batches">
-          {pending.length ? pending.reduce((x, y) => x + y, 0) : "–"}
+          {lanes.isPending ? (
+            <Pending />
+          ) : pending.length ? (
+            pending.reduce((x, y) => x + y, 0)
+          ) : (
+            "–"
+          )}
         </Card>
         <Card label="Last heartbeat">
-          <span title={heartbeat ?? undefined}>{ago(heartbeat, now)}</span>
+          {lanes.isPending ? (
+            <Pending />
+          ) : (
+            <span title={heartbeat ?? undefined}>{ago(heartbeat, now)}</span>
+          )}
         </Card>
       </div>
       <p className="mt-2 text-sm text-slate-500">
@@ -100,6 +122,8 @@ export function AgentPage({ org, id }: { org: string; id: string }) {
       <h2 className="mt-8 text-lg font-semibold">Lanes</h2>
       {lanes.isError ? (
         <Problem error={lanes.error} />
+      ) : lanes.isPending ? (
+        <Loading />
       ) : ls.length === 0 ? (
         <p className="mt-2 text-slate-500">No recorder has reported yet.</p>
       ) : (

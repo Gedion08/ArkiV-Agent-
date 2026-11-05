@@ -5,6 +5,7 @@ type Json<O> = O extends { responses: { 200: { content: { "application/json": in
   ? J
   : never;
 export type Agent = Json<paths["/v1/agents/{id}"]["get"]>["agent"];
+export type AgentListItem = Json<paths["/v1/orgs/{org}/agents"]["get"]>["agents"][number];
 export type Lane = Json<paths["/v1/agents/{id}/lanes"]["get"]>["lanes"][number];
 export type Alert = Json<paths["/v1/orgs/{org}/alerts"]["get"]>["alerts"][number];
 export type Org = Json<paths["/v1/orgs"]["get"]>["orgs"][number];
@@ -43,19 +44,18 @@ export async function ok<T>(
   throw new ApiError(response.status, typeof code === "string" ? code : `HTTP_${response.status}`);
 }
 
-// Queries shared by the list and the overview, so they reuse one cache entry.
 export const lanesQuery = (id: string) => ({
   queryKey: ["lanes", id],
   queryFn: () => ok(api().GET("/v1/agents/{id}/lanes", { params: { path: { id } } })),
 });
-// shortcut: one page of open alerts (500) per org; move per-agent counts into the agent list endpoint
-// once orgs outgrow it
-export const openAlertsQuery = (org: string) => ({
-  queryKey: ["alerts", org, "open"],
+/** One agent's open alerts (the API caps a page at 500; the overview says "500+" then). */
+export const OPEN_ALERTS_PAGE = 500;
+export const openAlertsQuery = (org: string, agent: string) => ({
+  queryKey: ["alerts", org, "open", agent],
   queryFn: () =>
     ok(
       api().GET("/v1/orgs/{org}/alerts", {
-        params: { path: { org }, query: { status: "open", limit: 500 } },
+        params: { path: { org }, query: { status: "open", agent, limit: OPEN_ALERTS_PAGE } },
       }),
     ),
 });

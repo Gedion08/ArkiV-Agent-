@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { ApiError } from "../lib/api.js";
 import {
+  agentLabel,
   type DisplayStatus,
   SEVERITIES,
   SEVERITY_CLASS,
@@ -48,6 +49,22 @@ export const Hash = ({ value, n }: { value: string; n?: number }) => (
   </span>
 );
 
+/** An agent id as "#10593 Base Sepolia · registry 0x8004…8847", full id on hover. */
+/** `compact`: in tables, the chain/registry part shows from the sm breakpoint up. */
+export function AgentId({ id, compact = false }: { id: string; compact?: boolean }) {
+  const { primary, secondary } = agentLabel(id);
+  return (
+    <span title={id}>
+      <span className="font-mono font-medium">{primary}</span>
+      {secondary && (
+        <span className={`ml-1.5 text-slate-500 ${compact ? "hidden sm:inline" : ""}`}>
+          {secondary}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export const Card = ({ label, children }: { label: string; children: ReactNode }) => (
   <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
     <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
@@ -56,6 +73,13 @@ export const Card = ({ label, children }: { label: string; children: ReactNode }
 );
 
 export const Loading = () => <p className="text-slate-500">Loading…</p>;
+/** A card value that is still loading (never shown as "none" or "never"). */
+export const Pending = () => (
+  <span className="text-slate-400">
+    <span aria-hidden>…</span>
+    <span className="sr-only">Loading</span>
+  </span>
+);
 
 export const Problem = ({ error }: { error: unknown }) => (
   <p role="alert" className="text-red-600 dark:text-red-400">

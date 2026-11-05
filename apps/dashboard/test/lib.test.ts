@@ -1,10 +1,10 @@
 import { parseSiweMessage } from "viem/siwe";
 import { describe, expect, test } from "vitest";
-import { type Agent, type Alert, ApiError, csrfFrom, type Lane } from "../src/lib/api.js";
-import { ago, displayStatus, lastAction, severityCounts, short } from "../src/lib/format.js";
+import { type Alert, ApiError, csrfFrom } from "../src/lib/api.js";
+import { agentLabel, ago, displayStatus, severityCounts, short } from "../src/lib/format.js";
 import { parseRoute } from "../src/lib/route.js";
 import { siweMessage } from "../src/lib/siwe.js";
-import { loginError } from "../src/pages/login.js";
+import { loginError, sortConnectors } from "../src/pages/login.js";
 
 const ORG = "0b8f5f3e-4a51-4c0e-9d1e-2f1a9c8b7d6e";
 const AG = "6c2d7e1a-9b3f-4e8d-a1c5-0f9e8d7c6b5a";
@@ -55,7 +55,6 @@ test("SIWE message round-trips with the dashboard's host, a 10 min expiry and th
 describe("format", () => {
   const alert = (p: Partial<Alert>) =>
     ({ agent_id: AG, severity: "high", type: "X", ...p }) as Alert;
-  const agent = { id: AG, status: "active" } as Agent;
 
   test("short and ago", () => {
     expect(short(`0x${"ab".repeat(32)}`)).toBe("0xababab…ababab");
@@ -69,33 +68,46 @@ describe("format", () => {
     expect(ago("2026-11-05T12:00:05Z", now)).toBe("0 s ago"); // clock skew
   });
 
-  test("severity counts are per agent", () => {
+  test("severity counts", () => {
     const xs = [
       alert({ severity: "critical" }),
       alert({ severity: "critical" }),
       alert({ severity: "low" }),
-      alert({ agent_id: ORG, severity: "high" }),
     ];
-    expect(severityCounts(xs, AG)).toEqual({ critical: 2, low: 1 });
+    expect(severityCounts(xs)).toEqual({ critical: 2, low: 1 });
   });
 
-  test("silent only for an active agent with its own open RECORDER_SILENT", () => {
-    expect(displayStatus(agent, [alert({ type: "RECORDER_SILENT" })])).toBe("silent");
-    expect(displayStatus(agent, [alert({ type: "RECORDER_SILENT", agent_id: ORG })])).toBe(
-      "active",
+  test("silent only for an active agent with an open RECORDER_SILENT", () => {
+    expect(displayStatus("active", true)).toBe("silent");
+    expect(displayStatus("active", false)).toBe("active");
+    expect(displayStatus("paused", true)).toBe("paused");
+  });
+
+  test("agent ids read as token and chain, not as a hash", () => {
+    expect(agentLabel("eip155:84532:0x8004a6090cd10a7288092483047b097295fb8847:10593")).toEqual({
+      primary: "#10593",
+      secondary: "Base Sepolia · registry 0x8004…8847",
+    });
+    expect(agentLabel("eip155:999:0x8004a6090cd10a7288092483047b097295fb8847:7").secondary).toMatch(
+      /^chain 999 · /,
     );
-    expect(
-      displayStatus({ ...agent, status: "paused" }, [alert({ type: "RECORDER_SILENT" })]),
-    ).toBe("paused");
+    expect(agentLabel("local:afc0a2a1-0000-4000-8000-000000084532")).toEqual({
+      primary: "local",
+      secondary: "afc0a2a1",
+    });
   });
+});
 
-  test("last action is the latest batch across lanes", () => {
-    const lane = (last_batch_at: string | null) => ({ last_batch_at }) as Lane;
-    expect(lastAction([])).toBeNull();
-    expect(
-      lastAction([lane("2026-11-05T10:00:00.000Z"), lane(null), lane("2026-11-05T11:00:00.000Z")]),
-    ).toBe("2026-11-05T11:00:00.000Z");
-  });
+test("wallet picker: extensions first, then Coinbase, then WalletConnect", () => {
+  const c = (id: string, type: string) => ({ id, type });
+  expect(
+    sortConnectors([
+      c("walletConnect", "walletConnect"),
+      c("coinbaseWalletSDK", "coinbaseWallet"),
+      c("io.rabby", "injected"),
+      c("injected", "injected"),
+    ]).map((x) => x.id),
+  ).toEqual(["io.rabby", "injected", "coinbaseWalletSDK", "walletConnect"]);
 });
 
 test("login errors show codes, never raw messages", () => {
@@ -104,4 +116,10 @@ test("login errors show codes, never raw messages", () => {
     "The request was rejected in your wallet.",
   );
   expect(loginError(new Error("https://rpc.example/key-123 failed"))).not.toContain("rpc");
+  // wagmi wraps the wallet's rejection
+  const wrapped = Object.assign(new Error("Connection failed"), {
+    cause: { name: "UserRejectedRequestError", code: 4001 },
+  });
+  expect(loginError(wrapped)).toBe("The request was rejected in your wallet.");
+  expect(loginError({ name: "ProviderNotFoundError" })).toMatch(/^No browser wallet found/);
 });

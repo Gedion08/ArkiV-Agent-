@@ -24,6 +24,8 @@ export interface ApiOptions {
   redis?: Redis;
   /** Invitation emails and the notifier's email channel; without it the inviter passes the token on. */
   mailer?: Mailer;
+  /** The dashboard's built files (ADR-026), served at / from this origin. */
+  dashboardDir?: string;
   /** Local dev and tests only: webhook channels may target http:// and private addresses. */
   allowPrivateWebhooks?: boolean;
   /** ms clock (tests). */
