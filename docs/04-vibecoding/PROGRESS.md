@@ -10,7 +10,7 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
 | P3 Anchor + verify | **done, with exceptions** (owner's call, 2026-11-05): all 13 tickets done. P3-12 ✓ A4 met: the staging KMS key `0xd9b2…b27d` anchored epoch 4 (tx `0xfe0e5b81…96bc`). Exit demo ✓: structural, full (`…:10593`), mirror corruption FAIL, anchors on BaseScan | Exceptions: P3-13's 3 green nights (GitHub Actions locked by a billing issue; secrets set); npm provenance (needs Actions + an `@afr` org; the CLI ships as GitHub Release tarballs for `npx`); the DoD third-person check |
-| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓, P4-03 ✓, P4-04 ✓ (W1, W2, W4 on anvil), P4-05 ✓ (W5), P4-06 ✓ (W10, P4; local only) | Watcher on staging since 2026-11-05 (ECS `afr-staging-watcher`, Base Sepolia), without P4-05/06 yet. No end-to-end alert on staging yet (P4-07 canary) |
+| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓, P4-03 ✓, P4-04 ✓ (W1, W2, W4 on anvil), P4-05 ✓ (W5), P4-06 ✓ (W10, P4) | Watcher on staging since 2026-11-05 (ECS `afr-staging-watcher`, Base Sepolia); P4-05/06 deployed (`acb1bcf`). No end-to-end alert on staging yet (P4-07 canary) |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
 | P7 Scale & enterprise | not started | |
@@ -55,8 +55,13 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
   - No per-agent maintenance windows or expected-tx allowlists.
   - No Slack, Telegram or kill switch.
   - RECORDED_GAP isn't visible without plaintext.
-- **Not done:** staging deploy. The API image must go first (migration v8), then the watcher. Staging has no `AFR_SMTP_URL`, so email channels fail `NO_MAILER` there.
-- Next: deploy, then P4-07 (canary).
+- **Deployed to staging** (commit `acb1bcf`). There were two applies from reviewed saved plans, API first so migration v8 ran before the watcher needed it:
+  - api `task-definition:5`;
+  - watcher `:2`;
+  - anchor unchanged at `:3`.
+- **Live:** all three services 1/1, and `/healthz` ok. The API logged `listening`, which comes after migrate. In its first ~7 min the watcher logged only `leader`, with no `watcher_step_failed` or `reconcile_failed`, so the audit and liveness passes ran cleanly.
+- **Not verified on staging:** a real alert or delivery. That needs a channel and the P4-07 canary tx. Staging has no `AFR_SMTP_URL`, so email channels fail `NO_MAILER` there; webhooks work.
+- Next: P4-07 (canary).
 
 ### 2026-11-05: watcher deployed to staging
 - **Terraform (staging):**
