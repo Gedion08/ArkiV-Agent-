@@ -99,11 +99,15 @@ CREATE TABLE grants (id uuid PK, agent_id uuid, reader_id uuid, epoch_id int, ke
 -- alerts & notifications
 CREATE TABLE alerts (id uuid PK, org_id uuid, agent_id uuid, lane int, type text, severity text, dedupe_key text,
   status text, resolution text, subject jsonb, evidence jsonb, count int DEFAULT 1,
-  first_seen_at timestamptz, last_seen_at timestamptz, acked_by uuid, resolved_by uuid, UNIQUE (org_id, dedupe_key));
-CREATE TABLE alert_events (id bigserial PK, alert_id uuid, kind text, actor text, data jsonb, at timestamptz);
+  first_seen_at timestamptz, last_seen_at timestamptz, acked_by uuid, resolved_by uuid,
+  suppressed_until timestamptz, UNIQUE (org_id, dedupe_key));
+CREATE TABLE alert_events (id bigserial PK, org_id uuid, alert_id uuid, kind text, actor text, data jsonb, at timestamptz);
 CREATE TABLE notification_channels (id uuid PK, org_id uuid, kind text CHECK (kind IN ('webhook','email','slack','telegram','pagerduty')),
-  config_kms bytea NOT NULL, min_severity text, agent_filter uuid[], enabled boolean, created_at timestamptz);
-CREATE TABLE deliveries (id bigserial PK, channel_id uuid, alert_id uuid, status text, attempts int, last_error text, at timestamptz);
+  name text, config_kms bytea NOT NULL, min_severity text, agent_filter uuid[], enabled boolean, created_at timestamptz);
+CREATE TABLE deliveries (id bigserial PK, org_id uuid, channel_id uuid, alert_id uuid, event text, delivery_id uuid,
+  status text CHECK (status IN ('pending','sent','failed')), attempts int, last_error text, next_at timestamptz, at timestamptz);
+  -- org_id on events and deliveries is for RLS; afr_route_alert(alert, event) fills deliveries (L6 §6.2)
+CREATE TABLE audit_cursors (agent_id uuid, lane int, next_seq numeric, chain_root bytea, PRIMARY KEY (agent_id, lane));  -- L6 §5
 
 -- guardrails (v1)
 CREATE TABLE policies (id uuid PK, org_id uuid, agent_id uuid, version int, doc jsonb, doc_hash bytea, status text
@@ -173,9 +177,21 @@ CREATE TABLE audit_log (id bigserial PK, org_id uuid, actor text, action text, t
 
 `GET /v1/orgs/{org}/alerts?status&severity&agent&type`, `GET /v1/alerts/{id}`, `POST /v1/alerts/{id}/ack`, `POST /v1/alerts/{id}/resolve {resolution, note}`, `POST /v1/alerts/{id}/suppress {until}`.
 
+- **Reads and writes.** Any member reads, and auditors see only their assigned agents' alerts. Engineers and above ack, resolve and suppress. Each change is audited and appended to `alert_events`.
+- **Lifecycle limits.** A resolved alert is 409 `ALERT_RESOLVED`; it reopens only if the watcher sees it again. `until` must be in the future and at most 30 days out.
+- **The note.** It is the user's own text and lives only in `alert_events`, never in the alert or a payload.
+- **No plaintext (L6 W10).** The alert schema is strict: subject and evidence take ids, hashes, decimals and codes only, with no spaces in `details` values. A row with anything else fails the response (500), and the notifier won't send it.
+
 ### 4.6 Notifications
 
-`GET/POST/PATCH/DELETE /v1/orgs/{org}/channels`, `POST /v1/channels/{id}/test`. Slack OAuth install: `GET /v1/integrations/slack/install` → callback. Telegram: bot deep link `t.me/afr_bot?start=<token>`.
+`GET/POST /v1/orgs/{org}/channels`, `PATCH/DELETE /v1/orgs/{org}/channels/{id}`, `POST /v1/channels/{id}/test`. Slack OAuth install: `GET /v1/integrations/slack/install` → callback. Telegram: bot deep link `t.me/afr_bot?start=<token>`.
+
+- **Kinds (v0).** `webhook {url}` and `email {to}`, with `name`, `min_severity` (default `high`), `agent_filter` (agents of the org) and `enabled`.
+- **Who.** Owners and admins manage channels; engineers can list them.
+- **Config storage.** The config is sealed with OrgSecrets, with the channel id as AAD, and is never returned.
+- **Webhook URLs.** Https only, with no credentials in the URL. `AFR_WEBHOOK_ALLOW_PRIVATE=1` (local dev) also allows http and private targets.
+- **The signing secret** (`whsec_<64 hex>`) is shown once, on create. To rotate it, recreate the channel.
+- **Test.** `POST /test` queues a `channel.test` delivery (202 `{delivery_id}`).
 
 ### 4.7 Readers and grants (v1)
 
@@ -201,13 +217,27 @@ X-AFR-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, t + "." + body)>
 
 Retries: 10 attempts over 24 h with exponential backoff. Deliveries are logged.
 
+- **Events.** Also `channel.test`, with body `{type, channel: {id, name}}`. `agent` is the agent's `{id, agent_id, name}`.
+- **Body.** The body is JCS, and the HMAC key is the secret string (UTF-8).
+- **The receiver check:**
+  ```ts
+  const [, t, v1] = /^t=(\d+),v1=([0-9a-f]{64})$/.exec(header) ?? [];
+  const ok = t && Math.abs(Date.now() / 1000 - Number(t)) <= 300 &&
+    timingSafeEqual(createHmac("sha256", secret).update(`${t}.${rawBody}`).digest(), Buffer.from(v1, "hex"));
+  ```
+  It is tested in P4 (`apps/api/test/alerts.test.ts`).
+- **Retry schedule:** after 1 m, 5 m, 15 m, 30 m, 1 h, 2 h, 4 h, 6 h and 10 h, then the delivery fails. A 2xx counts as sent.
+- **Not followed:** redirects.
+- **Blocked targets.** Unless private targets are allowed, the notifier blocks names that resolve to loopback, private, link-local (cloud metadata), CGNAT or reserved addresses.
+  - Shortcut: fetch resolves the name again, so a DNS rebinding window remains.
+
 ---
 
 ## 5. Workers (pg-boss queues)
 
 | Queue | Producer | Consumer | Notes |
 |---|---|---|---|
-| `notify` | watcher alert engine, approvals | notifier | Per-channel adapters, rate-limited (Slack 1/s/channel) |
+| `notify` | watcher alert engine, approvals | notifier | Per-channel adapters, rate-limited (Slack 1/s/channel). v0: the `deliveries` table, polled every 5 s by every API task (claimed with SKIP LOCKED and a 5 min lease, `apps/api/src/notifier.ts`), no pg-boss |
 | `checkpoint.validated` | API | anchor service | v0: `checkpoints.status` polled by the anchor service (L5 §3.4), no queue |
 | `anchor.confirmed` | anchor service | API → recorder notices (via config poll) + webhooks | v0: the anchor service writes `checkpoints` directly; recorders see it in `/v1/recorder/config`. Webhooks later |
 | `usage.rollup` | cron hourly | metering | `usage_events` → `usage_daily` → Stripe meter events |
@@ -216,7 +246,7 @@ Retries: 10 attempts over 24 h with exponential backoff. Deliveries are logged.
 
 ### 5.1 Notifier adapters
 
-- **Email:** Resend/SES with templates. Critical alerts are sent individually, others as a digest.
+- **Email:** Resend/SES with templates. Critical alerts are sent individually, others as a digest. v0: the API's SMTP `Mailer` (`AFR_SMTP_URL`, Mailpit locally), one plain-text mail per alert, with no digest yet. Without a mailer an email delivery fails `NO_MAILER`.
 - **Slack:** app with `chat:write` and interactive buttons (Ack / Open / Approve v1). Signature verification on interactions.
 - **Telegram:** bot. Chats link through a one-time token. Inline keyboard for ack/approve.
 - **Webhook:** §4.10.

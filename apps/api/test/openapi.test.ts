@@ -22,6 +22,10 @@ describe("OpenAPI", () => {
         "/v1/agents/{id}/watched-addresses",
         "/v1/agents/{id}/batches",
         "/v1/recorder/checkpoints",
+        "/v1/orgs/{org}/alerts",
+        "/v1/alerts/{id}/resolve",
+        "/v1/orgs/{org}/channels/{id}",
+        "/v1/channels/{id}/test",
       ]),
     );
   });

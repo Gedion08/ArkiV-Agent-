@@ -134,6 +134,52 @@ const MIGRATIONS: string[] = [
    CREATE FUNCTION watch_key_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
      PERFORM pg_notify('afr_watch_keys', NEW.agent_id::text); RETURN NULL; END $$;
    CREATE TRIGGER watch_key_changed AFTER UPDATE ON watch_keys FOR EACH ROW EXECUTE FUNCTION watch_key_changed();`,
+  // v8: alerts (L6 §6, L8 §3). The watcher raises and auto-resolves, the API acks/resolves/suppresses; both
+  // route through afr_route_alert (severity ≥ the channel's minimum, agent filter) into deliveries, which the
+  // notifier in the API drains. audit_cursors = the log auditor's per-lane position (L6 §5), watcher-owned.
+  `CREATE TABLE alerts (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES orgs,
+     agent_id uuid REFERENCES agents, lane int, type text NOT NULL,
+     severity text NOT NULL CHECK (severity IN ('info','low','medium','high','critical')), dedupe_key text NOT NULL,
+     status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','acked','resolved','suppressed')),
+     resolution text CHECK (resolution IN ('fixed','false_positive','reorged','late_intent','expected')),
+     subject jsonb NOT NULL DEFAULT '{}', evidence jsonb NOT NULL DEFAULT '{}', count int NOT NULL DEFAULT 1,
+     first_seen_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(),
+     acked_by uuid, resolved_by uuid, suppressed_until timestamptz, UNIQUE (org_id, dedupe_key));
+   CREATE INDEX alerts_org ON alerts (org_id, last_seen_at DESC);
+   CREATE TABLE alert_events (id bigserial PRIMARY KEY, org_id uuid NOT NULL REFERENCES orgs,
+     alert_id uuid NOT NULL REFERENCES alerts, kind text NOT NULL, actor text NOT NULL, data jsonb NOT NULL DEFAULT '{}',
+     at timestamptz NOT NULL DEFAULT now());
+   CREATE INDEX alert_events_alert ON alert_events (alert_id, id);
+   CREATE TABLE notification_channels (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES orgs,
+     kind text NOT NULL CHECK (kind IN ('webhook','email','slack','telegram','pagerduty')), name text NOT NULL,
+     config_kms bytea NOT NULL,
+     min_severity text NOT NULL DEFAULT 'high' CHECK (min_severity IN ('info','low','medium','high','critical')),
+     agent_filter uuid[], enabled boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now());
+   CREATE TABLE deliveries (id bigserial PRIMARY KEY, org_id uuid NOT NULL REFERENCES orgs,
+     channel_id uuid NOT NULL REFERENCES notification_channels ON DELETE CASCADE, alert_id uuid REFERENCES alerts,
+     event text NOT NULL, delivery_id uuid NOT NULL DEFAULT gen_random_uuid(),
+     status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed')),
+     attempts int NOT NULL DEFAULT 0, last_error text, next_at timestamptz NOT NULL DEFAULT now(),
+     at timestamptz NOT NULL DEFAULT now());
+   CREATE INDEX deliveries_due ON deliveries (next_at) WHERE status = 'pending';
+   CREATE TABLE audit_cursors (agent_id uuid NOT NULL REFERENCES agents, lane int NOT NULL, next_seq numeric NOT NULL,
+     chain_root bytea, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (agent_id, lane));
+   CREATE FUNCTION afr_route_alert(a uuid, ev text) RETURNS int LANGUAGE sql AS $$
+     WITH ins AS (
+       INSERT INTO deliveries (org_id, channel_id, alert_id, event)
+       SELECT c.org_id, c.id, al.id, ev FROM alerts al JOIN notification_channels c ON c.org_id = al.org_id
+        WHERE al.id = a AND c.enabled
+          AND array_position(ARRAY['info','low','medium','high','critical'], al.severity)
+           >= array_position(ARRAY['info','low','medium','high','critical'], c.min_severity)
+          AND (c.agent_filter IS NULL OR al.agent_id = ANY (c.agent_filter))
+       RETURNING 1)
+     SELECT count(*)::int FROM ins $$;
+   DO $$ DECLARE t text; BEGIN
+     FOREACH t IN ARRAY ARRAY['alerts','alert_events','notification_channels','deliveries'] LOOP
+       EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+       EXECUTE format('CREATE POLICY tenant ON %I TO afr_app USING (org_id = afr_org()) WITH CHECK (org_id = afr_org())', t);
+     END LOOP;
+   END $$;`,
 ];
 
 /** Applies pending migrations, one transaction each; an advisory lock keeps concurrent starts serial. */

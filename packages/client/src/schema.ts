@@ -1657,6 +1657,660 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{org}/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    status?: "open" | "acked" | "resolved" | "suppressed";
+                    severity?: "info" | "low" | "medium" | "high" | "critical";
+                    agent?: string;
+                    type?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    org: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            alerts: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                org_id: string;
+                                agent_id: string | null;
+                                agent_key: string | null;
+                                lane: number | null;
+                                type: string;
+                                /** @enum {string} */
+                                severity: "info" | "low" | "medium" | "high" | "critical";
+                                dedupe_key: string;
+                                /** @enum {string} */
+                                status: "open" | "acked" | "resolved" | "suppressed";
+                                resolution: ("fixed" | "false_positive" | "reorged" | "late_intent" | "expected") | null;
+                                subject: {
+                                    chain_id?: number;
+                                    tx_hash?: string;
+                                    seq_from?: string;
+                                    seq_to?: string;
+                                    address?: string;
+                                    batch_key?: string;
+                                };
+                                evidence: {
+                                    last_records?: {
+                                        seq: string;
+                                        hash: string;
+                                    }[];
+                                    explorer_url?: string;
+                                    details?: {
+                                        [key: string]: string;
+                                    };
+                                };
+                                count: number;
+                                first_seen_at: string;
+                                last_seen_at: string;
+                                suppressed_until: string | null;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/alerts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            alert: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                org_id: string;
+                                agent_id: string | null;
+                                agent_key: string | null;
+                                lane: number | null;
+                                type: string;
+                                /** @enum {string} */
+                                severity: "info" | "low" | "medium" | "high" | "critical";
+                                dedupe_key: string;
+                                /** @enum {string} */
+                                status: "open" | "acked" | "resolved" | "suppressed";
+                                resolution: ("fixed" | "false_positive" | "reorged" | "late_intent" | "expected") | null;
+                                subject: {
+                                    chain_id?: number;
+                                    tx_hash?: string;
+                                    seq_from?: string;
+                                    seq_to?: string;
+                                    address?: string;
+                                    batch_key?: string;
+                                };
+                                evidence: {
+                                    last_records?: {
+                                        seq: string;
+                                        hash: string;
+                                    }[];
+                                    explorer_url?: string;
+                                    details?: {
+                                        [key: string]: string;
+                                    };
+                                };
+                                count: number;
+                                first_seen_at: string;
+                                last_seen_at: string;
+                                suppressed_until: string | null;
+                            };
+                            events: {
+                                kind: string;
+                                actor: string;
+                                data: {
+                                    [key: string]: string;
+                                };
+                                at: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/alerts/{id}/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            alert: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                org_id: string;
+                                agent_id: string | null;
+                                agent_key: string | null;
+                                lane: number | null;
+                                type: string;
+                                /** @enum {string} */
+                                severity: "info" | "low" | "medium" | "high" | "critical";
+                                dedupe_key: string;
+                                /** @enum {string} */
+                                status: "open" | "acked" | "resolved" | "suppressed";
+                                resolution: ("fixed" | "false_positive" | "reorged" | "late_intent" | "expected") | null;
+                                subject: {
+                                    chain_id?: number;
+                                    tx_hash?: string;
+                                    seq_from?: string;
+                                    seq_to?: string;
+                                    address?: string;
+                                    batch_key?: string;
+                                };
+                                evidence: {
+                                    last_records?: {
+                                        seq: string;
+                                        hash: string;
+                                    }[];
+                                    explorer_url?: string;
+                                    details?: {
+                                        [key: string]: string;
+                                    };
+                                };
+                                count: number;
+                                first_seen_at: string;
+                                last_seen_at: string;
+                                suppressed_until: string | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/alerts/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        resolution: "fixed" | "false_positive" | "reorged" | "late_intent" | "expected";
+                        note?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            alert: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                org_id: string;
+                                agent_id: string | null;
+                                agent_key: string | null;
+                                lane: number | null;
+                                type: string;
+                                /** @enum {string} */
+                                severity: "info" | "low" | "medium" | "high" | "critical";
+                                dedupe_key: string;
+                                /** @enum {string} */
+                                status: "open" | "acked" | "resolved" | "suppressed";
+                                resolution: ("fixed" | "false_positive" | "reorged" | "late_intent" | "expected") | null;
+                                subject: {
+                                    chain_id?: number;
+                                    tx_hash?: string;
+                                    seq_from?: string;
+                                    seq_to?: string;
+                                    address?: string;
+                                    batch_key?: string;
+                                };
+                                evidence: {
+                                    last_records?: {
+                                        seq: string;
+                                        hash: string;
+                                    }[];
+                                    explorer_url?: string;
+                                    details?: {
+                                        [key: string]: string;
+                                    };
+                                };
+                                count: number;
+                                first_seen_at: string;
+                                last_seen_at: string;
+                                suppressed_until: string | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/alerts/{id}/suppress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: date-time */
+                        until: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            alert: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                org_id: string;
+                                agent_id: string | null;
+                                agent_key: string | null;
+                                lane: number | null;
+                                type: string;
+                                /** @enum {string} */
+                                severity: "info" | "low" | "medium" | "high" | "critical";
+                                dedupe_key: string;
+                                /** @enum {string} */
+                                status: "open" | "acked" | "resolved" | "suppressed";
+                                resolution: ("fixed" | "false_positive" | "reorged" | "late_intent" | "expected") | null;
+                                subject: {
+                                    chain_id?: number;
+                                    tx_hash?: string;
+                                    seq_from?: string;
+                                    seq_to?: string;
+                                    address?: string;
+                                    batch_key?: string;
+                                };
+                                evidence: {
+                                    last_records?: {
+                                        seq: string;
+                                        hash: string;
+                                    }[];
+                                    explorer_url?: string;
+                                    details?: {
+                                        [key: string]: string;
+                                    };
+                                };
+                                count: number;
+                                first_seen_at: string;
+                                last_seen_at: string;
+                                suppressed_until: string | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    org: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            channels: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                kind: "webhook" | "email";
+                                name: string;
+                                /** @enum {string} */
+                                min_severity: "info" | "low" | "medium" | "high" | "critical";
+                                agent_filter: string[] | null;
+                                enabled: boolean;
+                                created_at: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    org: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        kind: "webhook";
+                        /** Format: uri */
+                        url: string;
+                        name: string;
+                        /**
+                         * @default high
+                         * @enum {string}
+                         */
+                        min_severity?: "info" | "low" | "medium" | "high" | "critical";
+                        /** @default null */
+                        agent_filter?: string[] | null;
+                        /** @default true */
+                        enabled?: boolean;
+                    } | {
+                        /** @enum {string} */
+                        kind: "email";
+                        /** Format: email */
+                        to: string;
+                        name: string;
+                        /**
+                         * @default high
+                         * @enum {string}
+                         */
+                        min_severity?: "info" | "low" | "medium" | "high" | "critical";
+                        /** @default null */
+                        agent_filter?: string[] | null;
+                        /** @default true */
+                        enabled?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            channel: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                kind: "webhook" | "email";
+                                name: string;
+                                /** @enum {string} */
+                                min_severity: "info" | "low" | "medium" | "high" | "critical";
+                                agent_filter: string[] | null;
+                                enabled: boolean;
+                                created_at: string;
+                            };
+                            secret?: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{org}/channels/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    org: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {boolean} */
+                            ok: true;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    org: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        name?: string;
+                        /** @enum {string} */
+                        min_severity?: "info" | "low" | "medium" | "high" | "critical";
+                        agent_filter?: string[] | null;
+                        enabled?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            channel: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                kind: "webhook" | "email";
+                                name: string;
+                                /** @enum {string} */
+                                min_severity: "info" | "low" | "medium" | "high" | "critical";
+                                agent_filter: string[] | null;
+                                enabled: boolean;
+                                created_at: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/v1/channels/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            delivery_id: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {

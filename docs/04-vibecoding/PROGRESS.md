@@ -10,13 +10,53 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
 | P3 Anchor + verify | **done, with exceptions** (owner's call, 2026-11-05): all 13 tickets done. P3-12 ✓ A4 met: the staging KMS key `0xd9b2…b27d` anchored epoch 4 (tx `0xfe0e5b81…96bc`). Exit demo ✓: structural, full (`…:10593`), mirror corruption FAIL, anchors on BaseScan | Exceptions: P3-13's 3 green nights (GitHub Actions locked by a billing issue; secrets set); npm provenance (needs Actions + an `@afr` org; the CLI ships as GitHub Release tarballs for `npx`); the DoD third-person check |
-| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓, P4-03 ✓, P4-04 ✓ (W1, W2, W4 on anvil); watcher service runnable | Watcher on staging since 2026-11-05 (ECS `afr-staging-watcher`, Base Sepolia). No end-to-end alert on staging yet (P4-07 canary) |
+| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓, P4-03 ✓, P4-04 ✓ (W1, W2, W4 on anvil), P4-05 ✓ (W5), P4-06 ✓ (W10, P4; local only) | Watcher on staging since 2026-11-05 (ECS `afr-staging-watcher`, Base Sepolia), without P4-05/06 yet. No end-to-end alert on staging yet (P4-07 canary) |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
 | P7 Scale & enterprise | not started | |
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-05: P4-05 + P4-06: log auditor, alert engine, alert and channel routes, notifier
+- **Migration v8 (API):** `alerts` (plus `suppressed_until`), `alert_events`, `notification_channels` (plus `name`), `deliveries` (plus `event`, `delivery_id`, `next_at`) and `audit_cursors`.
+  - Org RLS on the first four; `org_id` was added to events and deliveries for it.
+  - `afr_route_alert(alert, event)` queues a delivery for each enabled channel with `min_severity` ≤ the alert's severity and a matching agent filter.
+- **Log auditor (P4-05, L6 §5):** `apps/watcher/src/auditor.ts`.
+  - `auditLane` runs per lane from `audit_cursors`, alongside reconciliation every 60 s. It raises SEQ_GAP (once the later batch is 5 min old on Arkiv), BROKEN_CHAIN (with the failed checks listed), EQUIVOCATION, DELEGATION_MISUSE, and the flag alerts POLICY_BREACH, UNAPPROVED_HIGH_VALUE and POLICY_BLOCK.
+  - Arkiv is open-write. A signer counts as misuse only if it's in an operator-signed delegation or registered in `session_keys`; anyone else is noise.
+  - `auditLiveness` raises RECORDER_SILENT (no batch or heartbeat for 180 s) and ANCHOR_LAG (checkpoint pending for 30 min), and resolves them `fixed` when the condition clears.
+  - `reconcile.ts` now exports `authenticBatch`, `delegatedAt` and `arkivTime`, shared by both.
+- **Alert engine (P4-06, L6 §6):** `apps/watcher/src/alerts.ts` `PgAlerts` and `MemoryAlerts`.
+  - Dedupe on `(org, dedupe_key)`. Repeats count and don't notify; a resolved alert, or a suppressed one past its window, reopens and notifies.
+  - Every change goes to `alert_events` and `afr_route_alert`.
+  - Wired in the service: `UNLOGGED_TX` opens an alert, `LATE_INTENT` resolves it as `late_intent`, follower orphans resolve it as `reorged`, `INTENT_NOT_MINED` is an info alert.
+  - The service's `onEvent` option is replaced by `alerts`.
+- **API (L8 §4.5, §4.6):** `routes/alerts.ts`.
+  - Alerts: list (filters, auditors scoped), get with events, ack, resolve (with a note kept only in events), suppress (≤ 30 days). All audited.
+  - Channels (webhook, email): create (config sealed with the channel id as AAD; webhook secret `whsec_…` shown once; https only unless `AFR_WEBHOOK_ALLOW_PRIVATE=1`), list, patch, delete, test.
+  - The strict alert schema is W10.
+  - `openapi.json` and the client `schema.ts` are regenerated.
+- **Notifier (L8 §5, §4.10):** `apps/api/src/notifier.ts`, started by `startApi`.
+  - It polls `deliveries` every 5 s, claiming rows with SKIP LOCKED and a 5 min lease.
+  - Adapters: email via `Mailer`, and webhooks with `X-AFR-Signature: t=…,v1=HMAC-SHA256(secret, t.body)` over a JCS body, `X-AFR-Event` and `X-AFR-Delivery`.
+  - 10 attempts over about 24 h. No redirects. The SSRF block list covers loopback, private and link-local (metadata) addresses.
+  - Failures are stored and logged by code only.
+- **Tests:**
+  - W5: `apps/watcher/test/auditor.test.ts`, 6 tests on the verifier's batch-tampering fixture.
+  - W10 + P4 + lifecycle + retries + SSRF: `apps/api/test/alerts.test.ts`, 6 tests on local PG.
+  - PG alerts dedupe, reopen, W3/W4 resolve and liveness: `tools/e2e/test/watcher-pg.test.ts`, now 5 tests.
+  - api 29, watcher 10, verifier 16, e2e 13 all pass. Typecheck, lint and depcruise are clean.
+- **Shortcuts (commented in code):**
+  - One mail per alert, no digest.
+  - A DNS rebinding window on webhooks.
+  - The auditor checks each range once, so a later fork is left to the verifier.
+  - Every chain leader runs the Arkiv lane jobs.
+  - No per-agent maintenance windows or expected-tx allowlists.
+  - No Slack, Telegram or kill switch.
+  - RECORDED_GAP isn't visible without plaintext.
+- **Not done:** staging deploy. The API image must go first (migration v8), then the watcher. Staging has no `AFR_SMTP_URL`, so email channels fail `NO_MAILER` there.
+- Next: deploy, then P4-07 (canary).
 
 ### 2026-11-05: watcher deployed to staging
 - **Terraform (staging):**

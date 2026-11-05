@@ -1,5 +1,5 @@
 // L8 apps/api: Fastify bootstrap. Routes: SIWE auth, orgs + members, agents (+ watch keys, recorder keys,
-// watched addresses, read views) and the recorder endpoints (§4.1–§4.4). No plaintext ever: strict schemas
+// watched addresses, read views), the recorder endpoints (§4.1–§4.4), alerts and channels (§4.5, §4.6). No plaintext ever: strict schemas
 // reject unknown fields (§1, §8). Zod schemas validate, serialize and generate OpenAPI (§1).
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
@@ -25,6 +25,7 @@ import {
   sha256,
 } from "./http.js";
 import { agentRoutes } from "./routes/agents.js";
+import { alertRoutes } from "./routes/alerts.js";
 import { authRoutes } from "./routes/auth.js";
 import { orgRoutes } from "./routes/orgs.js";
 import { recorderRoutes } from "./routes/recorder.js";
@@ -126,5 +127,6 @@ export async function buildServer(o: ApiOptions): Promise<FastifyInstance> {
   await app.register(orgRoutes, ctx);
   await app.register(agentRoutes, ctx);
   await app.register(recorderRoutes, ctx);
+  await app.register(alertRoutes, ctx);
   return app;
 }

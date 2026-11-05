@@ -19,8 +19,8 @@
 | P4-02 | Watched set + tx filter + observed_txs | L6 §2, §3.2 (EOA only) | |
 | P4-03 | Intent intake (API → `tx_intents`) + Arkiv batch reconciliation in the log auditor | L6 §4.1 | ✓ (W4 reconciliation, unregistered signer ignored) |
 | P4-04 | Matcher (exact + nonce) with grace timers | L6 §4.2 | W1, W2, W4 ✓ (anvil + recorder) |
-| P4-05 | Log auditor: SEQ_GAP, BROKEN_CHAIN, EQUIVOCATION, DELEGATION_MISUSE, RECORDER_SILENT, ANCHOR_LAG | L6 §5 | W5 |
-| P4-06 | Alert engine + API alert routes + notifier (email via mailpit/Resend, signed webhooks) | L6 §6, L8 §4.5–4.10, §5 | W10, P4 |
+| P4-05 | Log auditor: SEQ_GAP, BROKEN_CHAIN, EQUIVOCATION, DELEGATION_MISUSE, RECORDER_SILENT, ANCHOR_LAG | L6 §5 | W5 ✓ |
+| P4-06 | Alert engine + API alert routes + notifier (email via mailpit/Resend, signed webhooks) | L6 §6, L8 §4.5–4.10, §5 | W10 ✓, P4 ✓ |
 | P4-07 | Canary job in staging (hourly unlogged tx) | L6 W9, L11 §5 | One alert/hour, auto-acked |
 
 ## Week 8 — dashboard

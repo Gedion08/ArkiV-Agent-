@@ -2,7 +2,9 @@
 //
 //   node dist/main.js   env: AFR_PG_URL, AFR_SIWE_DOMAIN, and AFR_KMS_ENVELOPE_KEY_ID (or AFR_API_LOCAL_KEK,
 //                       32-byte hex, for local dev); optional AFR_DASHBOARD_ORIGIN, AFR_REDIS_URL,
-//                       AFR_SMTP_URL + AFR_MAIL_FROM, AFR_SIWE_RPC_URL + AFR_SIWE_CHAIN_ID (8453), PORT (8080), HOST
+//                       AFR_SMTP_URL + AFR_MAIL_FROM, AFR_SIWE_RPC_URL + AFR_SIWE_CHAIN_ID (8453), PORT (8080), HOST,
+//                       AFR_WEBHOOK_ALLOW_PRIVATE=1 (local dev only: webhooks to http:// and private addresses)
+// The notifier (L8 §5) runs in every API task; deliveries are claimed with SKIP LOCKED.
 
 import { AfrError } from "@afr/core";
 import { createLogger } from "@afr/log";
@@ -15,7 +17,8 @@ import { base, baseSepolia } from "viem/chains";
 import { migrate } from "./db/migrations.js";
 import type { ApiOptions } from "./http.js";
 import { smtpMailer } from "./mail.js";
-import { kmsKeyWrapper, localKeyWrapper } from "./secrets.js";
+import { startNotifier } from "./notifier.js";
+import { kmsKeyWrapper, localKeyWrapper, OrgSecrets } from "./secrets.js";
 import { buildServer } from "./server.js";
 
 const SIWE_CHAINS = { [base.id]: base, [baseSepolia.id]: baseSepolia } as const;
@@ -60,6 +63,7 @@ export function readApiEnv(env: NodeJS.ProcessEnv) {
     siweRpc: env.AFR_SIWE_RPC_URL ? { url: env.AFR_SIWE_RPC_URL, chain: siweChain } : undefined,
     port,
     host: env.HOST ?? "0.0.0.0",
+    allowPrivateWebhooks: env.AFR_WEBHOOK_ALLOW_PRIVATE === "1",
   };
 }
 
@@ -83,6 +87,7 @@ export async function startApi(
       ...(c.origin ? { dashboardOrigin: c.origin } : {}),
       ...(redis ? { redis } : {}),
       ...(c.smtp ? { mailer: smtpMailer(c.smtp.url, c.smtp.from) } : {}),
+      ...(c.allowPrivateWebhooks ? { allowPrivateWebhooks: true } : {}),
       ...(c.siweRpc
         ? {
             siweClient: createPublicClient({
@@ -95,10 +100,12 @@ export async function startApi(
     const app = await buildServer(o);
     const url = await app.listen({ port: c.port, host: c.host });
     logger.info({ event: "listening", port: (app.server.address() as { port: number }).port });
+    const notifier = startNotifier({ ...o, secrets: new OrgSecrets(pool, o.keys) });
     return {
       app,
       url,
       close: async () => {
+        await notifier.stop();
         await app.close();
         await pool.end();
         redis?.disconnect();

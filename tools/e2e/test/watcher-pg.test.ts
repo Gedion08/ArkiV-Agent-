@@ -9,11 +9,14 @@ import { nonceCommit, txCommit } from "@afr/crypto";
 import { MemoryChain, MemoryStore } from "@afr/store";
 import { staticIdentityReader } from "@afr/verifier";
 import {
+  alertMatchEvent,
+  auditLiveness,
   HeadFollower,
   listenIntents,
   listenWatched,
-  type MatchEvent,
   Matcher,
+  MemoryAlerts,
+  PgAlerts,
   PgWatcherDb,
   pgWatchKeys,
   runWatcher,
@@ -224,7 +227,7 @@ describe.skipIf(!URL || !ANVIL)("watcher on Postgres", () => {
       await anvil.pc.waitForTransactionReceipt({ hash });
       return hash;
     };
-    const events: MatchEvent[] = [];
+    const sink = new MemoryAlerts();
     const clock = { offset: 0 };
     const start = (signal: AbortSignal) =>
       runWatcher({
@@ -239,7 +242,7 @@ describe.skipIf(!URL || !ANVIL)("watcher on Postgres", () => {
         sweepMs: 50,
         retryLockMs: 50,
         now: () => Date.now() + clock.offset,
-        onEvent: (e) => void events.push(e),
+        alerts: sink,
       });
     const until = async (ok: () => boolean | Promise<boolean>) => {
       for (let i = 0; i < 200 && !(await ok()); i++) await new Promise((r) => setTimeout(r, 25));
@@ -274,9 +277,9 @@ describe.skipIf(!URL || !ANVIL)("watcher on Postgres", () => {
     try {
       await pool.query("UPDATE agents SET watch_grace_s = 15 WHERE id = $1", [agentId]);
       const raw = await send();
-      await until(async () => (await match(raw)) === undefined && events.length === 0);
+      await until(async () => (await match(raw)) === undefined && sink.alerts.size === 0);
       clock.offset = 16_000; // past this agent's 15 s grace (the default would be 60 s)
-      await until(() => events.some((e) => e.type === "UNLOGGED_TX" && "tx" in e && e.tx === raw));
+      await until(() => sink.open("UNLOGGED_TX").some((x) => x.subject.tx_hash === raw));
 
       // rotate (as POST /watch-key/rotate does): the trigger tells the service to drop its cached key
       const next = new Uint8Array(randomBytes(32));
@@ -312,4 +315,96 @@ describe.skipIf(!URL || !ANVIL)("watcher on Postgres", () => {
     }
     expect(await leaders()).toBe(0);
   }, 30_000);
+  test("alerts: dedupe counts, routing, late intent / reorg resolve, reopen; liveness raises and clears", async () => {
+    const alerts = new PgAlerts(pool);
+    const channel = (
+      await pool.query(
+        `INSERT INTO notification_channels (org_id, kind, name, config_kms, min_severity)
+         VALUES ($1, 'webhook', 'all', '\\x00', 'info') RETURNING id`,
+        [org],
+      )
+    ).rows[0].id;
+    const tx = `0x${randomBytes(32).toString("hex")}` as Hex;
+    const ev = { agentId, chainId: 84532n, tx, block: 9n };
+    const row = async () =>
+      (
+        await pool.query(
+          "SELECT id, status, resolution, count, severity, subject, evidence FROM alerts WHERE dedupe_key = $1",
+          [`UNLOGGED_TX:84532:${tx}`],
+        )
+      ).rows[0];
+    const sent = async () =>
+      (
+        await pool.query("SELECT event FROM deliveries WHERE channel_id = $1 ORDER BY id", [
+          channel,
+        ])
+      ).rows.map((r) => r.event);
+
+    await alertMatchEvent(alerts, { type: "UNLOGGED_TX", ...ev });
+    await alertMatchEvent(alerts, { type: "UNLOGGED_TX", ...ev }); // a repeat counts, doesn't notify
+    expect(await row()).toMatchObject({
+      status: "open",
+      count: 2,
+      severity: "critical",
+      subject: { chain_id: 84532, tx_hash: tx },
+      evidence: { explorer_url: `https://sepolia.basescan.org/tx/${tx}`, details: { block: "9" } },
+    });
+    expect(await sent()).toEqual(["alert.opened"]);
+    await alertMatchEvent(alerts, { type: "LATE_INTENT", ...ev });
+    expect(await row()).toMatchObject({ status: "resolved", resolution: "late_intent" });
+    await alertMatchEvent(alerts, { type: "TX_REPLACED", ...ev }); // info only: no alert
+    await alertMatchEvent(alerts, { type: "UNLOGGED_TX", ...ev }); // seen again: reopens
+    expect(await row()).toMatchObject({ status: "open", resolution: null, count: 3 });
+    // W3: the follower's onOrphaned resolves it as reorged
+    await alerts.resolve(agentId, `UNLOGGED_TX:84532:${tx}`, "reorged");
+    expect(await row()).toMatchObject({ status: "resolved", resolution: "reorged" });
+    expect(await sent()).toEqual([
+      "alert.opened",
+      "alert.resolved",
+      "alert.opened",
+      "alert.resolved",
+    ]);
+    const { rows: events } = await pool.query(
+      "SELECT kind, actor FROM alert_events WHERE alert_id = $1 ORDER BY id",
+      [(await row()).id],
+    );
+    expect(events.map((e) => e.kind)).toEqual(["opened", "resolved", "reopened", "resolved"]);
+    expect(new Set(events.map((e) => e.actor))).toEqual(new Set(["watcher"]));
+
+    // liveness: a lane silent for 10 min, a checkpoint pending for an hour
+    await pool.query(
+      "INSERT INTO agent_lanes (agent_id, lane, last_heartbeat_at) VALUES ($1, 0, now() - interval '10 minutes')",
+      [agentId],
+    );
+    await pool.query(
+      `INSERT INTO checkpoints (agent_id, lane, seq_to, chain_root, batch_entity, received_at)
+       VALUES ($1, 0, 41, $2, $3, now() - interval '1 hour')`,
+      [agentId, randomBytes(32), randomBytes(32)],
+    );
+    const live = async () =>
+      (
+        await pool.query(
+          "SELECT type, status, resolution, subject FROM alerts WHERE type IN ('RECORDER_SILENT', 'ANCHOR_LAG') ORDER BY type",
+        )
+      ).rows;
+    try {
+      await auditLiveness(pool, alerts);
+      expect(await live()).toMatchObject([
+        { type: "ANCHOR_LAG", status: "open", subject: { seq_to: "41" } },
+        { type: "RECORDER_SILENT", status: "open" },
+      ]);
+      await pool.query("UPDATE agent_lanes SET last_heartbeat_at = now() WHERE agent_id = $1", [
+        agentId,
+      ]);
+      await pool.query("UPDATE checkpoints SET status = 'anchored' WHERE agent_id = $1", [agentId]);
+      await auditLiveness(pool, alerts);
+      expect(await live()).toMatchObject([
+        { type: "ANCHOR_LAG", status: "resolved", resolution: "fixed" },
+        { type: "RECORDER_SILENT", status: "resolved", resolution: "fixed" },
+      ]);
+    } finally {
+      await pool.query("DELETE FROM checkpoints WHERE agent_id = $1", [agentId]);
+      await pool.query("DELETE FROM agent_lanes WHERE agent_id = $1", [agentId]);
+    }
+  });
 });

@@ -1,6 +1,7 @@
 // Watcher state (L6 §2, §3.1): chain_cursors, observed_txs and the watched set, in the API schema (ARCHITECTURE
 // §8 table list; migration v5). Memory for tests; Postgres in production. The watcher connects as the table
 // owner, so RLS doesn't apply.
+import { ZERO_HASH } from "@afr/core";
 import type { Pool } from "pg";
 import type { Hex } from "viem";
 
@@ -94,6 +95,12 @@ export interface ReconcileDb {
   isSessionKey(agentId: string, lane: number, address: Hex): Promise<boolean>;
 }
 
+/** L6 §5 log auditor position per lane; root null = unknown (after a gap). */
+export interface AuditDb {
+  auditCursor(agentId: string, lane: number): Promise<{ next: bigint; root: Hex | null }>;
+  setAuditCursor(agentId: string, lane: number, next: bigint, root: Hex | null): Promise<void>;
+}
+
 type Status = "seen" | "orphaned";
 
 export interface MemoryIntent {
@@ -107,7 +114,7 @@ export interface MemoryIntent {
   notMined?: boolean;
 }
 
-export class MemoryWatcherDb implements WatcherDb, MatcherDb, ReconcileDb {
+export class MemoryWatcherDb implements WatcherDb, MatcherDb, ReconcileDb, AuditDb {
   /** Tests move this clock; it stamps seenAt like Postgres' now(). */
   now: () => number = Date.now;
   readonly cursors = new Map<bigint, Cursor>();
@@ -115,6 +122,7 @@ export class MemoryWatcherDb implements WatcherDb, MatcherDb, ReconcileDb {
   readonly intents: MemoryIntent[] = [];
   readonly batchCommits: { agentId: string; kind: "tx" | "nonce"; commitment: Hex }[] = [];
   readonly reconcileCursors = new Map<string, bigint>();
+  readonly auditCursors = new Map<string, { next: bigint; root: Hex | null }>();
   readonly sessionKeys: { agentId: string; lane: number; address: Hex }[] = [];
   /** agentId → watch_grace_s */
   readonly graceS = new Map<string, number>();
@@ -235,6 +243,14 @@ export class MemoryWatcherDb implements WatcherDb, MatcherDb, ReconcileDb {
     this.reconcileCursors.set(`${agentId}:${lane}`, seqTo + 1n);
   }
 
+  async auditCursor(agentId: string, lane: number) {
+    return this.auditCursors.get(`${agentId}:${lane}`) ?? { next: 0n, root: ZERO_HASH };
+  }
+
+  async setAuditCursor(agentId: string, lane: number, next: bigint, root: Hex | null) {
+    this.auditCursors.set(`${agentId}:${lane}`, { next, root });
+  }
+
   async isSessionKey(agentId: string, lane: number, address: Hex) {
     const a = address.toLowerCase();
     return this.sessionKeys.some(
@@ -246,7 +262,7 @@ export class MemoryWatcherDb implements WatcherDb, MatcherDb, ReconcileDb {
 const buf = (h: Hex) => Buffer.from(h.slice(2), "hex");
 const hex = (b: Buffer) => `0x${b.toString("hex")}` as Hex;
 
-export class PgWatcherDb implements WatcherDb, MatcherDb, ReconcileDb {
+export class PgWatcherDb implements WatcherDb, MatcherDb, ReconcileDb, AuditDb {
   readonly pool: Pool;
   constructor(pool: Pool) {
     this.pool = pool;
@@ -478,6 +494,27 @@ export class PgWatcherDb implements WatcherDb, MatcherDb, ReconcileDb {
         [agentId, lane, (seqTo + 1n).toString()],
       );
     });
+  }
+
+  async auditCursor(agentId: string, lane: number) {
+    const r = (
+      await this.pool.query<{ n: string; root: Buffer | null }>(
+        "SELECT next_seq::text AS n, chain_root AS root FROM audit_cursors WHERE agent_id = $1 AND lane = $2",
+        [agentId, lane],
+      )
+    ).rows[0];
+    return r
+      ? { next: BigInt(r.n), root: r.root ? hex(r.root) : null }
+      : { next: 0n, root: ZERO_HASH };
+  }
+
+  async setAuditCursor(agentId: string, lane: number, next: bigint, root: Hex | null) {
+    await this.pool.query(
+      `INSERT INTO audit_cursors (agent_id, lane, next_seq, chain_root) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (agent_id, lane) DO UPDATE SET next_seq = excluded.next_seq, chain_root = excluded.chain_root,
+         updated_at = now()`,
+      [agentId, lane, next.toString(), root ? buf(root) : null],
+    );
   }
 
   async isSessionKey(agentId: string, lane: number, address: Hex) {

@@ -347,7 +347,7 @@ Full schemas live in [L3](../02-layers/L3-evidence-store-arkiv.md), records in [
 
 ### 7.2 Postgres (control plane)
 
-Tables: `orgs`, `users`, `memberships`, `agents`, `agent_lanes`, `recorder_keys` (API keys), `checkpoints`, `anchors`, `tx_intents`, `batch_commitments`, `reconcile_cursors`, `tx_matches`, `watched_addresses`, `chain_cursors`, `observed_txs`, `alerts`, `alert_events`, `notification_channels`, `grants`, `reader_keys`, `policies`, `approvals`, `usage_events`, `invoices`, `audit_log`. None of them hold plaintext payloads.
+Tables: `orgs`, `users`, `memberships`, `agents`, `agent_lanes`, `recorder_keys` (API keys), `checkpoints`, `anchors`, `tx_intents`, `batch_commitments`, `reconcile_cursors`, `tx_matches`, `watched_addresses`, `chain_cursors`, `observed_txs`, `alerts`, `alert_events`, `notification_channels`, `deliveries`, `audit_cursors`, `grants`, `reader_keys`, `policies`, `approvals`, `usage_events`, `invoices`, `audit_log`. None of them hold plaintext payloads.
 
 ### 7.3 Recorder journal (SQLite)
 

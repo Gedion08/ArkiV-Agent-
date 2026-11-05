@@ -22,8 +22,10 @@ export interface ApiOptions {
   dashboardOrigin?: string;
   /** Shared rate-limit counters (§7) across API instances; without it each instance counts alone (dev). */
   redis?: Redis;
-  /** Invitation emails; without it the inviter passes the token on. */
+  /** Invitation emails and the notifier's email channel; without it the inviter passes the token on. */
   mailer?: Mailer;
+  /** Local dev and tests only: webhook channels may target http:// and private addresses. */
+  allowPrivateWebhooks?: boolean;
   /** ms clock (tests). */
   now?: () => number;
   /** 5xx are logged by code and route only (never request content). */

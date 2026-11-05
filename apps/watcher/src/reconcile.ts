@@ -11,7 +11,13 @@ import {
   batchDigest,
   recoverRecordSigner,
 } from "@afr/core";
-import { type BatchEntity, decodeFrame, type EvidenceStore, listBatches } from "@afr/store";
+import {
+  type BatchEntity,
+  decodeFrame,
+  type EvidenceStore,
+  type Frame,
+  listBatches,
+} from "@afr/store";
 import {
   type DelegationSet,
   type IdentityReader,
@@ -63,9 +69,11 @@ export async function reconcileLane(o: ReconcileOptions): Promise<number> {
       identity: o.identity,
       ...(o.writers ? { writers: o.writers } : {}),
     });
-    const t = BigInt(head.timestamp) - (head.block - b.meta.createdAtBlock) * ARKIV_BLOCK_S;
-    const pub = await validPub(o, agentKey, b, delegations, t);
-    if (!pub) continue; // forged, unsigned or out of delegation: a valid duplicate may follow
+    const a = await authenticBatch(o.agent, agentKey, b);
+    // forged, unsigned or out of delegation: a valid duplicate may follow
+    if (!a || !delegatedAt(delegations, a.signer, o.lane, arkivTime(head, b))) continue;
+    if (!(await o.db.isSessionKey(o.agentId, o.lane, a.signer))) continue;
+    const pub = a.pub;
     await o.db.addBatchCommitments(
       o.agentId,
       o.lane,
@@ -79,21 +87,25 @@ export async function reconcileLane(o: ReconcileOptions): Promise<number> {
   return added;
 }
 
-async function validPub(
-  o: ReconcileOptions,
+/** Estimated Arkiv write time (unix s) of a batch entity, from its creation block. */
+export const arkivTime = (head: { block: bigint; timestamp: number }, b: BatchEntity) =>
+  BigInt(head.timestamp) - (head.block - b.meta.createdAtBlock) * ARKIV_BLOCK_S;
+
+/** A batch that decodes, matches its attrs and whose batch_sig recovers to one of its listed session keys. */
+export async function authenticBatch(
+  agent: string,
   agentKey: Hex,
   b: BatchEntity,
-  ds: DelegationSet,
-  t: bigint,
-): Promise<BatchPublicV1 | undefined> {
-  let p: BatchPublicV1;
+): Promise<{ frame: Frame; pub: BatchPublicV1; signer: Hex } | undefined> {
+  let frame: Frame;
   try {
-    p = decodeFrame(b.payload).pub;
+    frame = decodeFrame(b.payload);
   } catch {
     return undefined;
   }
+  const p = frame.pub;
   if (
-    p.agent_id !== o.agent ||
+    p.agent_id !== agent ||
     BigInt(p.lane) !== b.attrs.lane ||
     BigInt(p.seq_from) !== b.attrs.seq_from ||
     BigInt(p.seq_to) !== b.attrs.seq_to
@@ -113,12 +125,16 @@ async function validPub(
     p.batch_sig as Hex,
   ).catch(() => undefined);
   if (!signer || !p.session_keys.some((k) => k.toLowerCase() === signer)) return undefined;
+  return { frame, pub: p, signer };
+}
+
+/** L1 §7: delegated by the operator for the lane at t (notBefore ≤ t ≤ notAfter + 1 h), not revoked by t. */
+export function delegatedAt(ds: DelegationSet, signer: Hex, lane: number, t: bigint): boolean {
   const revoked = ds.revokedAt.get(signer);
-  const delegated =
+  return (
     (revoked === undefined || revoked > t) &&
-    recordDelegations(ds, signer, o.lane).some(
+    recordDelegations(ds, signer, lane).some(
       (d) => d.notBefore - SKEW_S <= t && t <= d.notAfter + DELEGATION_GRACE_S,
-    );
-  if (!delegated) return undefined;
-  return (await o.db.isSessionKey(o.agentId, o.lane, signer)) ? p : undefined;
+    )
+  );
 }

@@ -169,6 +169,15 @@ Runs continuously per active (agent, lane), every 60 s plus on checkpoint notice
 - `has_violation`: some record has `policy.decision ∈ {warn, violated}`.
 - `has_unapproved_tx`: some `tx_sign` has `value_usd_cents ≥ agent.approval_threshold_cents` and no `approval{decision: approved}` referencing it.
 
+**Implementation (P4-05):** `apps/watcher/src/auditor.ts`, run by the watcher service with the reconciliation pass (every 60 s), from `audit_cursors (agent_id, lane, next_seq, chain_root)`.
+- **Which batches count.** Arkiv is open-write, so a batch counts only if it decodes, matches its attributes and its `batch_sig` recovers to a listed session key. A signer delegated for the lane at the batch's Arkiv write time (the §4.1 bound) is valid. A signer we know of (in some operator-signed delegation, or registered by the recorder in `session_keys`) outside that is `DELEGATION_MISUSE`. Any other signer is noise.
+- **SEQ_GAP** waits until the later batch is 5 min old on Arkiv (`GAP_WAIT_S`), so an upload in flight isn't a gap. The cursor then moves past it and the next link check is skipped (the missing root is unknown).
+- **BROKEN_CHAIN** evidence lists the failed checks (`CHAIN_BREAK`, `MERKLE_MISMATCH`, `RECORD_SIG`, `CHAIN_ROOT_MISMATCH`). The ct hash is already enforced by `decodeFrame`. The chain continues from the batch's own root, so one break doesn't cascade.
+- **RECORDER_SILENT**: no batch or heartbeat for 3 × `HEARTBEAT_MS` (180 s) on an active agent's lane. **ANCHOR_LAG**: a checkpoint still pending or validated after 3 × `ANCHOR_CADENCE_S`. Both read Postgres (`agent_lanes`, `checkpoints`) and resolve `fixed` when the condition clears.
+- **Not in the hosted auditor:**
+  - `RECORDED_GAP` needs the record types (plaintext).
+  - A fork published after the auditor passed its range, or an overlapping range, is caught only by the verifier (shortcut; upgrade: a lookback re-scan).
+
 ---
 
 ## 6. Alert engine
@@ -196,6 +205,12 @@ interface Alert {
 - Routing rules per tenant: severity → channels (L8 `notification_channels`). Default: critical → all channels + kill switch (if enabled), high → Slack/Telegram/email, medium → email digest, info → dashboard only.
 - Suppression windows: maintenance mode per agent, or expected-tx allowlist (e.g. known funding addresses for `UNEXPLAINED_OUTFLOW`).
 - Every alert state change is appended to `alert_events` (audit trail). v1: alert state changes are also recorded as AFR records of the tenant's "platform agent" (PLT-04).
+- **Implementation (P4-06):**
+  - **Raising and auto-resolving.** `apps/watcher/src/alerts.ts` `PgAlerts` dedupes on `(org_id, dedupe_key)`. A repeat increments `count` and doesn't notify. A repeat of a resolved alert, or of a suppressed one past `suppressed_until`, reopens it and notifies again.
+  - **Routing.** Each state change calls `afr_route_alert(alert, event)` (migration v8). It queues a `deliveries` row for every enabled channel of the org whose `min_severity` ≤ the alert's severity and whose `agent_filter` (if any) holds the agent. Routing is per channel, by minimum severity; the default rules above are a channel's settings, not built in.
+  - **Severities.** `UNLOGGED_TX` is critical, `INTENT_NOT_MINED` info; the others follow §5.
+  - **Matcher events.** `UNLOGGED_TX` opens `UNLOGGED_TX:<chain>:<tx>`. `LATE_INTENT` resolves it as `late_intent` (W4), and an orphaned tx resolves it as `reorged` (W3). `INTENT_NOT_MINED` is an info alert. `TX_REPLACED` stays a log event.
+  - **Not yet:** suppression windows per agent and expected-tx allowlists. Today a user suppresses one alert until a time, at most 30 days.
 
 ### 6.3 Kill switch (v1)
 
@@ -249,12 +264,12 @@ Pre-signed revocations: during delegation, the operator can also sign a `Revocat
 | W2 | Speed-up (same nonce, higher fee) of a logged tx → matched via nonce commit, info event |
 | W3 | Reorg on Anvil (`anvil_reorg`/snapshot revert) → orphaned tx alert auto-resolved `reorged` |
 | W4 | Late intent (notice dropped, arrives via Arkiv batch 40 s later) → no alert. 90 s later → alert then auto-resolve `late_intent` |
-| W5 | Seq gap / broken chain / equivocation / delegation misuse fixtures (from `test-vectors/negative`) → the right alerts |
+| W5 | Seq gap / broken chain / equivocation / delegation misuse fixtures → the right alerts ✓ (`apps/watcher/test/auditor.test.ts`; batch-level tampering from the verifier's V1/V5 fixture: the record-level `test-vectors/negative` cases need plaintext, which the hosted auditor never has) |
 | W6 | `transferFrom` by a third party draining an approved token → `UNEXPLAINED_OUTFLOW` |
 | W7 | 4337: userop through a bundler on Anvil (EntryPoint deployed) → matched by userOpHash. Unlogged userop → alert |
 | W8 | Watcher restart mid-stream → no missed blocks (cursor), no duplicate alerts (dedupe) |
 | W9 | Canary: hourly unlogged tx in staging produces exactly one alert, auto-acked |
-| W10 | Alert payloads contain no plaintext (schema test) |
+| W10 | Alert payloads contain no plaintext (schema test) ✓ (`apps/api/test/alerts.test.ts`: strict alert schema on responses and webhook payloads; a prose canary is never sent) |
 
 ## 11. Vibecoding prompts
 

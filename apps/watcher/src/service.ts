@@ -1,7 +1,8 @@
 // L6 §1 watcher service for one EVM chain: head follower (every 2 s), matcher sweep (every 5 s and on
 // LISTEN afr_intents), batch reconciliation of every active lane (every 60 s). One leader per chain (pg
 // advisory lock); state lives in Postgres, so a restart or failover resumes where the last leader stopped.
-// Match events are logged until the alert engine (P4-06) consumes them.
+// Match events become alerts (L6 §6): UNLOGGED_TX opens, a late intent or a reorg resolves it. The log
+// auditor (L6 §5) runs with the reconciliation pass.
 import { AfrError } from "@afr/core";
 import type { Logger } from "@afr/log";
 import type { OrgSecrets } from "@afr/secrets";
@@ -9,6 +10,8 @@ import type { EvidenceStore } from "@afr/store";
 import type { IdentityReader } from "@afr/verifier";
 import type { Pool } from "pg";
 import type { Hex } from "viem";
+import { type AlertSink, explorerUrl, PgAlerts } from "./alerts.js";
+import { auditLane, auditLiveness } from "./auditor.js";
 import { listen, PgWatcherDb } from "./db.js";
 import { type FollowerClient, HeadFollower, WatchedSet } from "./follower.js";
 import { type MatchEvent, Matcher } from "./matcher.js";
@@ -34,7 +37,8 @@ export interface WatcherServiceOptions {
   reconcileMs?: number;
   retryLockMs?: number;
   now?: () => number;
-  onEvent?: (e: MatchEvent) => void | Promise<void>;
+  /** Default: Postgres alerts (migration v8). */
+  alerts?: AlertSink;
 }
 
 /** The agent's watch keys from watch_keys (current, then the pre-rotation one), opened with the agent key as AAD. */
@@ -69,6 +73,33 @@ const sleep = (ms: number, signal: AbortSignal) =>
 
 const code = (e: unknown) => (e as AfrError).code ?? "ERROR";
 
+/** L6 §4.2 events → alerts. TX_REPLACED is an info event for the timeline, not an alert. */
+export async function alertMatchEvent(alerts: AlertSink, e: MatchEvent): Promise<void> {
+  if (e.type === "INTENT_NOT_MINED")
+    return alerts.raise({
+      agentId: e.agentId,
+      lane: e.lane,
+      type: "INTENT_NOT_MINED",
+      dedupeKey: `INTENT_NOT_MINED:${e.agentId}:${e.lane}:${e.seq}`,
+      subject: {
+        chain_id: Number(e.chainId),
+        seq_from: e.seq.toString(),
+        seq_to: e.seq.toString(),
+      },
+    });
+  const key = `UNLOGGED_TX:${e.chainId}:${e.tx}`;
+  if (e.type === "LATE_INTENT") return alerts.resolve(e.agentId, key, "late_intent");
+  if (e.type !== "UNLOGGED_TX") return;
+  const url = explorerUrl(e.chainId, e.tx);
+  return alerts.raise({
+    agentId: e.agentId,
+    type: "UNLOGGED_TX",
+    dedupeKey: key,
+    subject: { chain_id: Number(e.chainId), tx_hash: e.tx },
+    evidence: { ...(url ? { explorer_url: url } : {}), details: { block: e.block.toString() } },
+  });
+}
+
 export async function runWatcher(o: WatcherServiceOptions): Promise<void> {
   const { pool, chainId, signal, logger } = o;
   const followMs = o.followMs ?? 2_000;
@@ -93,6 +124,7 @@ export async function runWatcher(o: WatcherServiceOptions): Promise<void> {
     logger?.info({ event: "leader", chain_id: chainId.toString() }, "watcher leader lock held");
 
     const db = new PgWatcherDb(pool);
+    const alerts = o.alerts ?? new PgAlerts(pool);
     const watched = new WatchedSet(db, chainId);
     await watched.reload();
     const follower = new HeadFollower({
@@ -101,21 +133,27 @@ export async function runWatcher(o: WatcherServiceOptions): Promise<void> {
       db,
       watched,
       ...(o.startBlock !== undefined ? { startBlock: o.startBlock } : {}),
+      // W3: a reorged-out tx's UNLOGGED_TX resolves as reorged
+      onOrphaned: async (txs) => {
+        for (const t of txs)
+          for (const a of t.agentIds)
+            await alerts.resolve(a, `UNLOGGED_TX:${chainId}:${t.hash}`, "reorged");
+      },
     });
     const matcher = new Matcher({
       chainId,
       db,
       watchKeys: pgWatchKeys(pool, o.secrets),
       now,
-      onEvent:
-        o.onEvent ??
-        ((e) =>
-          logger?.info({
-            event: e.type,
-            agent: e.agentId,
-            chain_id: chainId.toString(),
-            ...("tx" in e ? { tx: e.tx } : { lane: e.lane, seq: e.seq.toString() }),
-          })),
+      onEvent: async (e) => {
+        logger?.info({
+          event: e.type,
+          agent: e.agentId,
+          chain_id: chainId.toString(),
+          ...("tx" in e ? { tx: e.tx } : { lane: e.lane, seq: e.seq.toString() }),
+        });
+        await alertMatchEvent(alerts, e);
+      },
     });
     let reloadWatched = false;
     let sweepSoon = false;
@@ -148,8 +186,9 @@ export async function runWatcher(o: WatcherServiceOptions): Promise<void> {
       if (now() - lastReconcile >= reconcileMs) {
         lastReconcile = now();
         await step("reconcile", async () => {
-          if ((await reconcileAll(o, db)) > 0) sweepSoon = true;
+          if ((await laneJobs(o, db, alerts)) > 0) sweepSoon = true;
         });
+        await step("liveness", () => auditLiveness(pool, alerts));
       }
       if (head !== undefined && (sweepSoon || now() - lastSweep >= sweepMs)) {
         sweepSoon = false;
@@ -167,8 +206,17 @@ export async function runWatcher(o: WatcherServiceOptions): Promise<void> {
   }
 }
 
-/** Every active agent's lanes; the writer allowlist comes from the agent's registration (L5 §4). */
-async function reconcileAll(o: WatcherServiceOptions, db: PgWatcherDb): Promise<number> {
+/**
+ * Reconciliation and the log auditor over every active agent's lanes; the writer allowlist comes from the
+ * agent's registration (L5 §4). Returns how many batches reconciliation added.
+ * shortcut: every chain's leader runs these Arkiv jobs (alerts dedupe, the work doesn't); with more than
+ * one watched chain, run them on one leader only.
+ */
+async function laneJobs(
+  o: WatcherServiceOptions,
+  db: PgWatcherDb,
+  alerts: AlertSink,
+): Promise<number> {
   const { rows } = await o.pool.query<{ id: string; agent_id: string; lane: number }>(
     `SELECT a.id, a.agent_id, l.lane FROM agent_lanes l JOIN agents a ON a.id = l.agent_id
       WHERE a.status = 'active' ORDER BY a.id, l.lane`,
@@ -182,7 +230,7 @@ async function reconcileAll(o: WatcherServiceOptions, db: PgWatcherDb): Promise<
         writers.set(r.agent_id, w?.length ? w.map((x) => x.toLowerCase() as Hex) : undefined);
       }
       const w = writers.get(r.agent_id);
-      added += await reconcileLane({
+      const lane = {
         db,
         store: o.store,
         identity: o.identity,
@@ -190,7 +238,9 @@ async function reconcileAll(o: WatcherServiceOptions, db: PgWatcherDb): Promise<
         agent: r.agent_id,
         lane: r.lane,
         ...(w ? { writers: w } : {}),
-      });
+      };
+      added += await reconcileLane(lane);
+      await auditLane({ ...lane, alerts });
     } catch (e) {
       // one agent's registration or RPC trouble doesn't stop the others
       o.logger?.error({ event: "reconcile_failed", agent: r.id, lane: r.lane, code: code(e) });

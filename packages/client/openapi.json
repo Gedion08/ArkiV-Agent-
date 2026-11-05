@@ -2960,6 +2960,1909 @@
           }
         }
       }
+    },
+    "/v1/orgs/{org}/alerts": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "acked",
+                "resolved",
+                "suppressed"
+              ]
+            },
+            "in": "query",
+            "name": "status",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "info",
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ]
+            },
+            "in": "query",
+            "name": "severity",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "query",
+            "name": "agent",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z_]{1,40}$"
+            },
+            "in": "query",
+            "name": "type",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "org",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "alerts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "org_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "agent_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "agent_key": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{64}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "lane": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 65535
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "type": {
+                            "type": "string",
+                            "pattern": "^[A-Z_]{1,40}$"
+                          },
+                          "severity": {
+                            "type": "string",
+                            "enum": [
+                              "info",
+                              "low",
+                              "medium",
+                              "high",
+                              "critical"
+                            ]
+                          },
+                          "dedupe_key": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9_.:,-]{0,400}$"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "open",
+                              "acked",
+                              "resolved",
+                              "suppressed"
+                            ]
+                          },
+                          "resolution": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "fixed",
+                                  "false_positive",
+                                  "reorged",
+                                  "late_intent",
+                                  "expected"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "subject": {
+                            "type": "object",
+                            "properties": {
+                              "chain_id": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "tx_hash": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{64}$"
+                              },
+                              "seq_from": {
+                                "type": "string",
+                                "pattern": "^\\d{1,20}$"
+                              },
+                              "seq_to": {
+                                "type": "string",
+                                "pattern": "^\\d{1,20}$"
+                              },
+                              "address": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$"
+                              },
+                              "batch_key": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{64}$"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "evidence": {
+                            "type": "object",
+                            "properties": {
+                              "last_records": {
+                                "maxItems": 10,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "seq": {
+                                      "type": "string",
+                                      "pattern": "^\\d{1,20}$"
+                                    },
+                                    "hash": {
+                                      "type": "string",
+                                      "pattern": "^0x[0-9a-f]{64}$"
+                                    }
+                                  },
+                                  "required": [
+                                    "seq",
+                                    "hash"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "explorer_url": {
+                                "type": "string",
+                                "pattern": "^https:\\/\\/[a-z0-9.-]+\\/tx\\/0x[0-9a-f]{64}$"
+                              },
+                              "details": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string",
+                                  "pattern": "^[a-z_]{1,32}$"
+                                },
+                                "additionalProperties": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9_.:,-]{0,400}$"
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "count": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "first_seen_at": {
+                            "type": "string"
+                          },
+                          "last_seen_at": {
+                            "type": "string"
+                          },
+                          "suppressed_until": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "org_id",
+                          "agent_id",
+                          "agent_key",
+                          "lane",
+                          "type",
+                          "severity",
+                          "dedupe_key",
+                          "status",
+                          "resolution",
+                          "subject",
+                          "evidence",
+                          "count",
+                          "first_seen_at",
+                          "last_seen_at",
+                          "suppressed_until"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "alerts"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/alerts/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "alert": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "org_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "agent_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "agent_key": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lane": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 65535
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "type": {
+                          "type": "string",
+                          "pattern": "^[A-Z_]{1,40}$"
+                        },
+                        "severity": {
+                          "type": "string",
+                          "enum": [
+                            "info",
+                            "low",
+                            "medium",
+                            "high",
+                            "critical"
+                          ]
+                        },
+                        "dedupe_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:,-]{0,400}$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "acked",
+                            "resolved",
+                            "suppressed"
+                          ]
+                        },
+                        "resolution": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "fixed",
+                                "false_positive",
+                                "reorged",
+                                "late_intent",
+                                "expected"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "subject": {
+                          "type": "object",
+                          "properties": {
+                            "chain_id": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "tx_hash": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            },
+                            "seq_from": {
+                              "type": "string",
+                              "pattern": "^\\d{1,20}$"
+                            },
+                            "seq_to": {
+                              "type": "string",
+                              "pattern": "^\\d{1,20}$"
+                            },
+                            "address": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "batch_key": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "evidence": {
+                          "type": "object",
+                          "properties": {
+                            "last_records": {
+                              "maxItems": 10,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "seq": {
+                                    "type": "string",
+                                    "pattern": "^\\d{1,20}$"
+                                  },
+                                  "hash": {
+                                    "type": "string",
+                                    "pattern": "^0x[0-9a-f]{64}$"
+                                  }
+                                },
+                                "required": [
+                                  "seq",
+                                  "hash"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "explorer_url": {
+                              "type": "string",
+                              "pattern": "^https:\\/\\/[a-z0-9.-]+\\/tx\\/0x[0-9a-f]{64}$"
+                            },
+                            "details": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "pattern": "^[a-z_]{1,32}$"
+                              },
+                              "additionalProperties": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_.:,-]{0,400}$"
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "count": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "first_seen_at": {
+                          "type": "string"
+                        },
+                        "last_seen_at": {
+                          "type": "string"
+                        },
+                        "suppressed_until": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "org_id",
+                        "agent_id",
+                        "agent_key",
+                        "lane",
+                        "type",
+                        "severity",
+                        "dedupe_key",
+                        "status",
+                        "resolution",
+                        "subject",
+                        "evidence",
+                        "count",
+                        "first_seen_at",
+                        "last_seen_at",
+                        "suppressed_until"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string"
+                          },
+                          "actor": {
+                            "type": "string"
+                          },
+                          "data": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          },
+                          "at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "actor",
+                          "data",
+                          "at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "alert",
+                    "events"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/alerts/{id}/ack": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "alert": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "org_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "agent_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "agent_key": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lane": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 65535
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "type": {
+                          "type": "string",
+                          "pattern": "^[A-Z_]{1,40}$"
+                        },
+                        "severity": {
+                          "type": "string",
+                          "enum": [
+                            "info",
+                            "low",
+                            "medium",
+                            "high",
+                            "critical"
+                          ]
+                        },
+                        "dedupe_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:,-]{0,400}$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "acked",
+                            "resolved",
+                            "suppressed"
+                          ]
+                        },
+                        "resolution": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "fixed",
+                                "false_positive",
+                                "reorged",
+                                "late_intent",
+                                "expected"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "subject": {
+                          "type": "object",
+                          "properties": {
+                            "chain_id": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "tx_hash": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            },
+                            "seq_from": {
+                              "type": "string",
+                              "pattern": "^\\d{1,20}$"
+                            },
+                            "seq_to": {
+                              "type": "string",
+                              "pattern": "^\\d{1,20}$"
+                            },
+                            "address": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "batch_key": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "evidence": {
+                          "type": "object",
+                          "properties": {
+                            "last_records": {
+                              "maxItems": 10,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "seq": {
+                                    "type": "string",
+                                    "pattern": "^\\d{1,20}$"
+                                  },
+                                  "hash": {
+                                    "type": "string",
+                                    "pattern": "^0x[0-9a-f]{64}$"
+                                  }
+                                },
+                                "required": [
+                                  "seq",
+                                  "hash"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "explorer_url": {
+                              "type": "string",
+                              "pattern": "^https:\\/\\/[a-z0-9.-]+\\/tx\\/0x[0-9a-f]{64}$"
+                            },
+                            "details": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "pattern": "^[a-z_]{1,32}$"
+                              },
+                              "additionalProperties": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_.:,-]{0,400}$"
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "count": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "first_seen_at": {
+                          "type": "string"
+                        },
+                        "last_seen_at": {
+                          "type": "string"
+                        },
+                        "suppressed_until": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "org_id",
+                        "agent_id",
+                        "agent_key",
+                        "lane",
+                        "type",
+                        "severity",
+                        "dedupe_key",
+                        "status",
+                        "resolution",
+                        "subject",
+                        "evidence",
+                        "count",
+                        "first_seen_at",
+                        "last_seen_at",
+                        "suppressed_until"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "alert"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/alerts/{id}/resolve": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "resolution": {
+                    "type": "string",
+                    "enum": [
+                      "fixed",
+                      "false_positive",
+                      "reorged",
+                      "late_intent",
+                      "expected"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "resolution"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "alert": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "org_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "agent_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "agent_key": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lane": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 65535
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "type": {
+                          "type": "string",
+                          "pattern": "^[A-Z_]{1,40}$"
+                        },
+                        "severity": {
+                          "type": "string",
+                          "enum": [
+                            "info",
+                            "low",
+                            "medium",
+                            "high",
+                            "critical"
+                          ]
+                        },
+                        "dedupe_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:,-]{0,400}$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "acked",
+                            "resolved",
+                            "suppressed"
+                          ]
+                        },
+                        "resolution": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "fixed",
+                                "false_positive",
+                                "reorged",
+                                "late_intent",
+                                "expected"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "subject": {
+                          "type": "object",
+                          "properties": {
+                            "chain_id": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "tx_hash": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            },
+                            "seq_from": {
+                              "type": "string",
+                              "pattern": "^\\d{1,20}$"
+                            },
+                            "seq_to": {
+                              "type": "string",
+                              "pattern": "^\\d{1,20}$"
+                            },
+                            "address": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "batch_key": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "evidence": {
+                          "type": "object",
+                          "properties": {
+                            "last_records": {
+                              "maxItems": 10,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "seq": {
+                                    "type": "string",
+                                    "pattern": "^\\d{1,20}$"
+                                  },
+                                  "hash": {
+                                    "type": "string",
+                                    "pattern": "^0x[0-9a-f]{64}$"
+                                  }
+                                },
+                                "required": [
+                                  "seq",
+                                  "hash"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "explorer_url": {
+                              "type": "string",
+                              "pattern": "^https:\\/\\/[a-z0-9.-]+\\/tx\\/0x[0-9a-f]{64}$"
+                            },
+                            "details": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "pattern": "^[a-z_]{1,32}$"
+                              },
+                              "additionalProperties": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_.:,-]{0,400}$"
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "count": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "first_seen_at": {
+                          "type": "string"
+                        },
+                        "last_seen_at": {
+                          "type": "string"
+                        },
+                        "suppressed_until": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "org_id",
+                        "agent_id",
+                        "agent_key",
+                        "lane",
+                        "type",
+                        "severity",
+                        "dedupe_key",
+                        "status",
+                        "resolution",
+                        "subject",
+                        "evidence",
+                        "count",
+                        "first_seen_at",
+                        "last_seen_at",
+                        "suppressed_until"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "alert"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/alerts/{id}/suppress": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "until": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": [
+                  "until"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "alert": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "org_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "agent_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "agent_key": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lane": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 65535
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "type": {
+                          "type": "string",
+                          "pattern": "^[A-Z_]{1,40}$"
+                        },
+                        "severity": {
+                          "type": "string",
+                          "enum": [
+                            "info",
+                            "low",
+                            "medium",
+                            "high",
+                            "critical"
+                          ]
+                        },
+                        "dedupe_key": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.:,-]{0,400}$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "acked",
+                            "resolved",
+                            "suppressed"
+                          ]
+                        },
+                        "resolution": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "fixed",
+                                "false_positive",
+                                "reorged",
+                                "late_intent",
+                                "expected"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "subject": {
+                          "type": "object",
+                          "properties": {
+                            "chain_id": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "tx_hash": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            },
+                            "seq_from": {
+                              "type": "string",
+                              "pattern": "^\\d{1,20}$"
+                            },
+                            "seq_to": {
+                              "type": "string",
+                              "pattern": "^\\d{1,20}$"
+                            },
+                            "address": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{40}$"
+                            },
+                            "batch_key": {
+                              "type": "string",
+                              "pattern": "^0x[0-9a-f]{64}$"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "evidence": {
+                          "type": "object",
+                          "properties": {
+                            "last_records": {
+                              "maxItems": 10,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "seq": {
+                                    "type": "string",
+                                    "pattern": "^\\d{1,20}$"
+                                  },
+                                  "hash": {
+                                    "type": "string",
+                                    "pattern": "^0x[0-9a-f]{64}$"
+                                  }
+                                },
+                                "required": [
+                                  "seq",
+                                  "hash"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "explorer_url": {
+                              "type": "string",
+                              "pattern": "^https:\\/\\/[a-z0-9.-]+\\/tx\\/0x[0-9a-f]{64}$"
+                            },
+                            "details": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "pattern": "^[a-z_]{1,32}$"
+                              },
+                              "additionalProperties": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_.:,-]{0,400}$"
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "count": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "first_seen_at": {
+                          "type": "string"
+                        },
+                        "last_seen_at": {
+                          "type": "string"
+                        },
+                        "suppressed_until": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "org_id",
+                        "agent_id",
+                        "agent_key",
+                        "lane",
+                        "type",
+                        "severity",
+                        "dedupe_key",
+                        "status",
+                        "resolution",
+                        "subject",
+                        "evidence",
+                        "count",
+                        "first_seen_at",
+                        "last_seen_at",
+                        "suppressed_until"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "alert"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{org}/channels": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "org",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "channels": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "webhook",
+                              "email"
+                            ]
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "min_severity": {
+                            "type": "string",
+                            "enum": [
+                              "info",
+                              "low",
+                              "medium",
+                              "high",
+                              "critical"
+                            ]
+                          },
+                          "agent_filter": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "created_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "name",
+                          "min_severity",
+                          "agent_filter",
+                          "enabled",
+                          "created_at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "channels"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "webhook"
+                        ]
+                      },
+                      "url": {
+                        "type": "string",
+                        "maxLength": 2000,
+                        "format": "uri"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "min_severity": {
+                        "default": "high",
+                        "type": "string",
+                        "enum": [
+                          "info",
+                          "low",
+                          "medium",
+                          "high",
+                          "critical"
+                        ]
+                      },
+                      "agent_filter": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "minItems": 1,
+                            "maxItems": 100,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "enabled": {
+                        "default": true,
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "url",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "email"
+                        ]
+                      },
+                      "to": {
+                        "type": "string",
+                        "maxLength": 320,
+                        "format": "email",
+                        "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "min_severity": {
+                        "default": "high",
+                        "type": "string",
+                        "enum": [
+                          "info",
+                          "low",
+                          "medium",
+                          "high",
+                          "critical"
+                        ]
+                      },
+                      "agent_filter": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "minItems": 1,
+                            "maxItems": 100,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "enabled": {
+                        "default": true,
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "to",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "org",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "channel": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "webhook",
+                            "email"
+                          ]
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "min_severity": {
+                          "type": "string",
+                          "enum": [
+                            "info",
+                            "low",
+                            "medium",
+                            "high",
+                            "critical"
+                          ]
+                        },
+                        "agent_filter": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "created_at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "kind",
+                        "name",
+                        "min_severity",
+                        "agent_filter",
+                        "enabled",
+                        "created_at"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "secret": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "channel"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{org}/channels/{id}": {
+      "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "min_severity": {
+                    "type": "string",
+                    "enum": [
+                      "info",
+                      "low",
+                      "medium",
+                      "high",
+                      "critical"
+                    ]
+                  },
+                  "agent_filter": {
+                    "anyOf": [
+                      {
+                        "minItems": 1,
+                        "maxItems": 100,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "org",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "channel": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "webhook",
+                            "email"
+                          ]
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "min_severity": {
+                          "type": "string",
+                          "enum": [
+                            "info",
+                            "low",
+                            "medium",
+                            "high",
+                            "critical"
+                          ]
+                        },
+                        "agent_filter": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "created_at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "kind",
+                        "name",
+                        "min_severity",
+                        "agent_filter",
+                        "enabled",
+                        "created_at"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "channel"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "org",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channels/{id}/test": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "delivery_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": [
+                    "delivery_id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
