@@ -110,6 +110,23 @@ const MIGRATIONS: string[] = [
      PERFORM pg_notify('watched_changed', coalesce(NEW.chain_id, OLD.chain_id)::text); RETURN NULL; END $$;
    CREATE TRIGGER watched_changed AFTER INSERT OR UPDATE OR DELETE ON watched_addresses
      FOR EACH ROW EXECUTE FUNCTION watched_changed();`,
+  // v6: matcher (L6 §4). batch_commitments = intents reconciled from signed Arkiv batches (commitments are
+  // shuffled, so not per seq); tx_matches = one verdict per (observed tx, agent), with the tx's commitments
+  // so an API intent that arrives after its tx matched isn't reported INTENT_NOT_MINED. Watcher-owned, no RLS.
+  `ALTER TABLE tx_intents ADD COLUMN not_mined_at timestamptz;
+   CREATE INDEX tx_intents_tx_commit ON tx_intents (agent_id, tx_commit);
+   CREATE INDEX tx_intents_nonce_commit ON tx_intents (agent_id, nonce_commit);
+   CREATE TABLE batch_commitments (agent_id uuid NOT NULL REFERENCES agents, kind text NOT NULL CHECK (kind IN ('tx','nonce')),
+     commitment bytea NOT NULL, lane int NOT NULL, seq_to numeric NOT NULL, received_at timestamptz NOT NULL DEFAULT now(),
+     PRIMARY KEY (agent_id, kind, commitment));
+   CREATE TABLE reconcile_cursors (agent_id uuid NOT NULL REFERENCES agents, lane int NOT NULL, next_seq numeric NOT NULL,
+     updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (agent_id, lane));
+   CREATE TABLE tx_matches (chain_id bigint NOT NULL, tx_hash bytea NOT NULL, agent_id uuid NOT NULL,
+     kind text NOT NULL CHECK (kind IN ('exact','replacement','late_intent','unlogged')),
+     tx_commit bytea NOT NULL, nonce_commit bytea NOT NULL, at timestamptz NOT NULL DEFAULT now(),
+     PRIMARY KEY (chain_id, tx_hash, agent_id));
+   CREATE INDEX tx_matches_tx_commit ON tx_matches (agent_id, tx_commit);
+   CREATE INDEX tx_matches_nonce_commit ON tx_matches (agent_id, nonce_commit);`,
 ];
 
 /** Applies pending migrations, one transaction each; an advisory lock keeps concurrent starts serial. */

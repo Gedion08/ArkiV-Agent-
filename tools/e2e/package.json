@@ -13,6 +13,7 @@
     "@afr/anchor": "workspace:*",
     "@afr/api": "workspace:*",
     "@afr/core": "workspace:*",
+    "@afr/crypto": "workspace:*",
     "@afr/store": "workspace:*",
     "@afr/watcher": "workspace:*",
     "@aws-sdk/client-kms": "3.1161.0",

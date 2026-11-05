@@ -10,13 +10,42 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
 | P3 Anchor + verify | **done, with exceptions** (owner's call, 2026-11-05): all 13 tickets done. P3-12 ✓ A4 met: the staging KMS key `0xd9b2…b27d` anchored epoch 4 (tx `0xfe0e5b81…96bc`). Exit demo ✓: structural, full (`…:10593`), mirror corruption FAIL, anchors on BaseScan | Exceptions: P3-13's 3 green nights (GitHub Actions locked by a billing issue; secrets set); npm provenance (needs Actions + an `@afr` org; the CLI ships as GitHub Release tarballs for `npx`); the DoD third-person check |
-| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓ | |
+| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓, P4-03 ✓, P4-04 ✓ (W1, W2, W4 on anvil) | No watcher service loop yet (`main.ts`): pieces are tested, not deployed |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
 | P7 Scale & enterprise | not started | |
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-05: P4-03 + P4-04: Arkiv batch reconciliation and the matcher
+- **API migration v6** (L6 §4.1):
+  - `tx_intents.not_mined_at`, plus indexes on `(agent_id, tx_commit)` and `(agent_id, nonce_commit)`.
+  - `batch_commitments`: intents recovered from Arkiv. They're keyed by commitment, not seq, because the recorder shuffles them.
+  - `reconcile_cursors`: next `seq_from` per lane.
+  - `tx_matches`: one verdict per (observed tx, agent): `exact`, `replacement`, `late_intent` or `unlogged`. It also stores the tx's commitments, so an API intent arriving after its tx matched isn't reported as not mined. It replaces L6's `matched_tx` column. L6 §4.1 is updated.
+- **`apps/watcher`:**
+  - `reconcileLane` (`reconcile.ts`): reads `afr.batch.v1` via `listBatches` from the lane cursor. A batch counts only if it decodes, matches its attributes, and `batch_sig` recovers to a listed session key the recorder registered (`session_keys`, not revoked). It stops at a gap.
+  - `Matcher.sweep(head)` (`matcher.ts`): exact by tx commitment, else replacement by nonce commitment (`TX_REPLACED`). Otherwise `UNLOGGED_TX` once the grace (60 s) and confirmations are met.
+  - A later intent from either source turns `unlogged` into `LATE_INTENT`. `INTENT_NOT_MINED` fires after 1 h.
+  - The pending set is the DB, so a restart loses no timer.
+  - `listenIntents` (LISTEN `afr_intents`) to sweep early.
+  - The watch key comes from an injected resolver.
+- **Tests:**
+  - `apps/watcher/test/matcher.anvil.test.ts` uses the real recorder, with a fake API that writes intents and session keys the way the routes do:
+    - W1: logged tx is exact; raw tx gives `UNLOGGED_TX` at 61 s, not 59 s, and only once.
+    - W2: speed-up gives `TX_REPLACED`, and the never-broadcast intent gives `INTENT_NOT_MINED` (the replaced one doesn't).
+    - W4: dropped notice, batch reconciled at 40 s gives no alert; at 61 s it alerts, then the batch gives `LATE_INTENT`. A batch from an unregistered key adds nothing.
+  - `tools/e2e/test/watcher-pg.test.ts` covers the same flow on Postgres: the SQL, `listenIntents`, and `isSessionKey` with revocation. The watch key is opened from `watch_keys` with `OrgSecrets`, as the service will do.
+  - Watcher: 7/7 pass. watcher-pg: 3/3 pass.
+  - The anvil setup moved to `apps/watcher/test/fixtures/anvil.ts`.
+- **Shortcuts (in code):**
+  - Grace is per matcher, not per agent.
+  - Watch keys are cached with no rotation handling.
+  - Reconciliation skips delegation time bounds and the operator signature; those are P4-05's `DELEGATION_MISUSE`.
+  - Still no service loop. Its watch-key resolver needs `OrgSecrets`, which lives in `apps/api` (apps can't import apps), so it must move to a package or the loop must run in the API process.
+- Deps: `@afr/watcher` adds `@afr/crypto` and `@afr/store`, plus `@afr/recorder` (dev). `@afr/e2e` adds `@afr/crypto` (dev). All are workspace packages, as planned in the L6 header.
+- Next: P4-05 (log auditor) and P4-06 (alert engine, notifier).
 
 ### 2026-11-05: P4-01 + P4-02: head follower, watched set, observed txs
 - **API migration v5** (L6 §2, §3):

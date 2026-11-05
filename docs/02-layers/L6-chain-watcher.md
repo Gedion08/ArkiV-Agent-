@@ -91,18 +91,28 @@ Outflow and approval logs come from `eth_getLogs` with `topics[1] ∈ watched` (
 2. **Batch reconciliation:** the log auditor reads `tx_commitments`/`nonce_commitments` from batch public sections on Arkiv. This covers lost notices. An intent counts only if its batch is signed by a valid delegated key.
 
 ```sql
--- shape only: the table lives in the API schema (ARCHITECTURE §8; migration v1), keyed by agent_id (uuid)
--- rather than tenant_id, with RLS through agents. chain_cursors and observed_txs: migration v5 (owned by the watcher)
-CREATE TABLE tx_intents (
-  tenant_id uuid NOT NULL, agent_key bytea NOT NULL, lane int NOT NULL, seq numeric NOT NULL,
-  chain_id bigint NOT NULL, tx_commit bytea, nonce_commit bytea NOT NULL,
-  source text NOT NULL CHECK (source IN ('api','arkiv')),
-  received_at timestamptz NOT NULL, matched_tx bytea,
-  PRIMARY KEY (tenant_id, agent_key, lane, seq)
+-- the tables live in the API schema (ARCHITECTURE §8). tx_intents: migration v1 (API-owned, RLS through
+-- agents) + v6 not_mined_at; the rest: v6, owned by the watcher (no RLS)
+CREATE TABLE tx_intents (                     -- source 'api': one row per tx_sign
+  agent_id uuid, lane int, seq numeric, chain_id bigint NOT NULL,
+  tx_commit bytea, nonce_commit bytea NOT NULL, received_at timestamptz NOT NULL,
+  not_mined_at timestamptz,                   -- INTENT_NOT_MINED reported once
+  PRIMARY KEY (agent_id, lane, seq)
 );
-CREATE INDEX ON watcher.tx_intents (tenant_id, tx_commit);
-CREATE INDEX ON watcher.tx_intents (tenant_id, nonce_commit);
+CREATE TABLE batch_commitments (              -- source 'arkiv': commitments are shuffled, so not per seq
+  agent_id uuid, kind text CHECK (kind IN ('tx','nonce')), commitment bytea, lane int, seq_to numeric,
+  received_at timestamptz, PRIMARY KEY (agent_id, kind, commitment)
+);
+CREATE TABLE reconcile_cursors (agent_id uuid, lane int, next_seq numeric, PRIMARY KEY (agent_id, lane));
+CREATE TABLE tx_matches (                     -- the verdict per (observed tx, agent), replaces matched_tx
+  chain_id bigint, tx_hash bytea, agent_id uuid,
+  kind text CHECK (kind IN ('exact','replacement','late_intent','unlogged')),
+  tx_commit bytea, nonce_commit bytea,        -- so an intent arriving after its tx matched isn't "not mined"
+  PRIMARY KEY (chain_id, tx_hash, agent_id)
+);
 ```
+
+- **Batch validity (P4-03):** a batch's commitments count if the frame decodes, its public section matches the entity attributes, and `batch_sig` recovers to a listed session key that the recorder registered for that lane (`session_keys`, not revoked). That is the same trust as an API intent: both come from the recorder's credentials. Delegation time bounds and the operator signature are the log auditor's `DELEGATION_MISUSE` check (§5). Reconciliation stops at a seq gap and resumes when it fills.
 
 ### 4.2 Algorithm
 
@@ -130,6 +140,7 @@ onOutflow(log):                               // ERC-20/721/1155 from watched in
 onApproval(log) in an unmatched tx → covered by UNLOGGED_TX; in a matched tx with spender not in allowlist (v1 guardrails) → POLICY_BREACH
 ```
 
+- **Implementation (P4-04):** the pending set is the database, not memory. `sweep()` re-derives it from `observed_txs` rows that have no `tx_matches` verdict (or only `unlogged`, within 1 h), so a restart loses no timer and `onIntent` is simply "sweep now" (LISTEN `afr_intents`, or after a reconciliation). Events: `UNLOGGED_TX`, `TX_REPLACED` (the info event), `LATE_INTENT`, `INTENT_NOT_MINED`; the alert engine (§6, P4-06) turns them into alerts. Watch keys are opened from `watch_keys` (sealed per org, agent key as AAD) through an injected resolver.
 - **Grace:** default 60 s, configurable 15–600 s per agent. A small grace means faster alerts and more false positives during recorder hiccups.
 - **Intent never mined:** an intent with no on-chain match after 1 h is an info event (`INTENT_NOT_MINED`: dropped/replaced tx). It feeds the timeline.
 
