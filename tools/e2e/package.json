@@ -14,6 +14,7 @@
     "@afr/api": "workspace:*",
     "@afr/core": "workspace:*",
     "@afr/store": "workspace:*",
+    "@afr/watcher": "workspace:*",
     "@aws-sdk/client-kms": "3.1161.0",
     "@types/pg": "8.23.1",
     "pg": "8.23.1",

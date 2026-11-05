@@ -64,6 +64,8 @@ handleReorg(n):
 ```
 
 - Providers: one primary RPC + one fallback per chain (Alchemy/QuickNode/own node). Each provider gets a circuit breaker.
+- The cursor (`chain_cursors`) stores the last block and the ring, so a reorg across a restart is still caught. A reorg deeper than the ring stops the follower with `REORG_TOO_DEEP`, and an operator chooses where to resume.
+- Read the head with no client-side cache (viem's `getBlockNumber` otherwise reuses it for a polling interval).
 - `confirmations_for_alert` (default 1) sets how many blocks deep a tx must be before `UNLOGGED_TX` fires. The 60 s grace already absorbs most reorgs on L2s.
 
 ### 3.2 What counts as "an action by a watched key"
@@ -89,8 +91,9 @@ Outflow and approval logs come from `eth_getLogs` with `topics[1] ∈ watched` (
 2. **Batch reconciliation:** the log auditor reads `tx_commitments`/`nonce_commitments` from batch public sections on Arkiv. This covers lost notices. An intent counts only if its batch is signed by a valid delegated key.
 
 ```sql
--- in watcher schema
-CREATE TABLE watcher.tx_intents (
+-- shape only: the table lives in the API schema (ARCHITECTURE §8; migration v1), keyed by agent_id (uuid)
+-- rather than tenant_id, with RLS through agents. chain_cursors and observed_txs: migration v5 (owned by the watcher)
+CREATE TABLE tx_intents (
   tenant_id uuid NOT NULL, agent_key bytea NOT NULL, lane int NOT NULL, seq numeric NOT NULL,
   chain_id bigint NOT NULL, tx_commit bytea, nonce_commit bytea NOT NULL,
   source text NOT NULL CHECK (source IN ('api','arkiv')),

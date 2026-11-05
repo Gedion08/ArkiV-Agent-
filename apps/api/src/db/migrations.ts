@@ -96,6 +96,20 @@ const MIGRATIONS: string[] = [
      status text NOT NULL CHECK (status IN ('building','manifest','sent','included','published','safe','finalized','failed')),
      created_at timestamptz NOT NULL DEFAULT now(), UNIQUE (chain_id, contract, epoch));
    CREATE TABLE anchor_write_journal (id text PRIMARY KEY, entry jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());`,
+  // v5: chain watcher (L6 §2, §3). Owned by the watcher service (no RLS, like anchors). ring = the last 256
+  // {number, hash} so a reorg across a restart is still caught; watched_changed tells followers to reload.
+  `CREATE TABLE chain_cursors (chain_id bigint PRIMARY KEY, block_number bigint NOT NULL, block_hash bytea NOT NULL,
+     ring jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());
+   CREATE TABLE observed_txs (chain_id bigint NOT NULL, tx_hash bytea NOT NULL, block_number bigint NOT NULL,
+     block_hash bytea NOT NULL, from_addr bytea NOT NULL, nonce numeric NOT NULL, to_addr bytea,
+     agent_ids uuid[] NOT NULL, status text NOT NULL DEFAULT 'seen' CHECK (status IN ('seen','orphaned')),
+     seen_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (chain_id, tx_hash));
+   CREATE INDEX observed_txs_block ON observed_txs (chain_id, block_number);
+   CREATE INDEX observed_txs_from_nonce ON observed_txs (chain_id, from_addr, nonce);
+   CREATE FUNCTION watched_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+     PERFORM pg_notify('watched_changed', coalesce(NEW.chain_id, OLD.chain_id)::text); RETURN NULL; END $$;
+   CREATE TRIGGER watched_changed AFTER INSERT OR UPDATE OR DELETE ON watched_addresses
+     FOR EACH ROW EXECUTE FUNCTION watched_changed();`,
 ];
 
 /** Applies pending migrations, one transaction each; an advisory lock keeps concurrent starts serial. */

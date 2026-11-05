@@ -15,7 +15,7 @@
 
 | ID | Task | Ref | Done when |
 |---|---|---|---|
-| P4-01 | Head follower with reorg handling + cursors (Base Sepolia, Anvil) | L6 §3.1 | W3, W8 |
+| P4-01 | Head follower with reorg handling + cursors (Base Sepolia, Anvil) | L6 §3.1 | W3, W8 ✓ (anvil) |
 | P4-02 | Watched set + tx filter + observed_txs | L6 §2, §3.2 (EOA only) | |
 | P4-03 | Intent intake (API → `tx_intents`) + Arkiv batch reconciliation in the log auditor | L6 §4.1 | |
 | P4-04 | Matcher (exact + nonce) with grace timers | L6 §4.2 | W1, W2, W4 |

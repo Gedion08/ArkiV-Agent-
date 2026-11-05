@@ -9,14 +9,35 @@ Update at the end of every coding session (see VIBECODING §2). Newest entries f
 | P0 Foundations | done locally (not pushed) | `pnpm verify` + `forge test` green. Not verified: CI on GitHub, `pnpm local:up` stack only (now healthy; contracts + seed not checked) |
 | P1 Recorder core | P1-01…P1-19 done locally; exit demo passed | Hot path p99 3.4–3.8 ms after the checkpoint fix (S13); T9 (core ≤ 1 ms) still not met, not gated. Not verified: CI on GitHub |
 | P2 Evidence store | done locally: P2-01 ✓, P2-02 ✓, P2-03 ✓, P2-04 ✓, P2-05 ✓ (memory), P2-06 ✓ (Postgres, conformance green on a local PG 16), P2-07 ✓ (part 2: HPKE + .afrkey), P2-08 ✓ (WriterQueue + ArkivStore, conformance green on Rabdi), P2-09 ✓, P2-10 ✓, P2-11 ✓, P2-12 ✓, P2-13 ✓ (API v0), P2-14 ✓, API hardening ✓ (parts 1–2), P2-15 ✓, P2-16 ✓, exit demo ✓ (Rabdi) | P2 done (DoD ✓). Not verified: CI on GitHub. Docker installed; `AFR_PG_PORT=5433 pnpm local:up` healthy (host PG holds 5432). |
-| P3 Anchor + verify | all 13 tickets done. P3-12 ✓ A4 met: staging applied in eu-north-1, and the KMS key `0xd9b2…b27d` anchored epoch 4 (tx `0xfe0e5b81…96bc`). Exit demo ✓: structural + full (`…:10593` with a kept reader key) + mirror corruption FAIL | Not met: P3-13's 3 green nights, because GitHub Actions is locked by a billing issue on the account (secrets are set). npm provenance waits on Actions + an `@afr` org: the CLI ships as GitHub Release tarballs for `npx`. DoD third-person check pending |
-| P4 Watcher + dashboard | not started | |
+| P3 Anchor + verify | **done, with exceptions** (owner's call, 2026-11-05): all 13 tickets done. P3-12 ✓ A4 met: the staging KMS key `0xd9b2…b27d` anchored epoch 4 (tx `0xfe0e5b81…96bc`). Exit demo ✓: structural, full (`…:10593`), mirror corruption FAIL, anchors on BaseScan | Exceptions: P3-13's 3 green nights (GitHub Actions locked by a billing issue; secrets set); npm provenance (needs Actions + an `@afr` org; the CLI ships as GitHub Release tarballs for `npx`); the DoD third-person check |
+| P4 Watcher + dashboard | in progress: P4-01 ✓ (W3, W8 on anvil), P4-02 ✓ | |
 | P5 Demo + partners | not started | |
 | P6 v1 GA | not started | |
 | P7 Scale & enterprise | not started | |
 | P8 Network layer | not started | |
 
 ## Session entries
+
+### 2026-11-05: P4-01 + P4-02: head follower, watched set, observed txs
+- **API migration v5** (L6 §2, §3):
+  - `chain_cursors`: the last block plus a ring of the last 256 `{number, hash}`, as jsonb.
+  - `observed_txs`: `(chain_id, tx_hash)`, block, from/nonce/to, the agents watching, and status `seen` or `orphaned`.
+  - A `watched_changed` NOTIFY trigger on `watched_addresses`; the payload is the chain id.
+  - The tables sit in the API schema, owned by the watcher with no RLS, like `anchors`. L6 §4.1 now says so; it said "watcher schema" before, against ARCHITECTURE §8.
+- **`apps/watcher`:**
+  - `HeadFollower` (`follower.ts`): polls the head, checks each block's parent hash against the ring, walks back to the common ancestor on a mismatch, orphans what it observed above it, and resumes.
+  - Every block commits its watched txs and the cursor in one transaction, so a restart neither skips nor repeats a block.
+  - A reorg deeper than the ring throws `REORG_TOO_DEEP` instead of guessing.
+  - `WatchedSet` and the EOA tx filter (`tx.from ∈ watched`).
+  - `WatcherDb` comes in memory and Postgres versions; `listenWatched` handles LISTEN.
+- **Bug found and fixed:** viem caches `getBlockNumber` for a polling interval (4 s), so ticks saw a stale head. The follower now reads it with `cacheTime: 0`.
+- **Tests:**
+  - `apps/watcher/test/follower.anvil.test.ts`: W8 (restart: every block committed exactly once, in order), W3 (reorg orphans the watched tx and the cursor follows the new chain), unwatched senders ignored, and `REORG_TOO_DEEP`.
+  - `tools/e2e/test/watcher-pg.test.ts`: the same follower over `PgWatcherDb` on the real migrations, and NOTIFY reaching the right chain's listener only.
+  - 4/4 and 2/2 pass, 3 runs in a row. The API (23) and anchor-pg suites pass on v5.
+- **Shortcuts (in code):** head polling only, with no newHeads subscription. No backfill for addresses added after the cursor passed their `since_block`. No service loop or `main.ts` yet; it comes with the matcher, which needs it to run.
+- Deps: `@afr/watcher` now depends on `@afr/core`, `pg` and `viem`, all already exact-pinned in the repo. `@afr/e2e` depends on `@afr/watcher`.
+- Next: P4-03 (intent intake + Arkiv batch reconciliation) and P4-04 (matcher: W1, W2, W4).
 
 ### 2026-11-05: P3 gaps closed: staging on AWS (A4), --mirror, full-mode demo agent, GitHub push, release tarballs
 - **GitHub:** pushed to `Gedion08/ArkiV-Agent-` (public; branch renamed to `main`). A scan of the full history found only public RPC hosts and addresses.
